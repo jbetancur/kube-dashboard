@@ -25,19 +25,10 @@ func (cs *ClusterService) ListClusters(c *fiber.Ctx) error {
 
 func (cs *ClusterService) GetCluster(c *fiber.Ctx) error {
 	clusterID := c.Params("clusterID")
-	cluster, exists := cs.clusterManager.GetCluster(clusterID)
+	cluster, exists := cs.clusterManager.GetClusterConnection(clusterID)
 	if exists != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Cluster not found"})
 	}
 
 	return c.JSON(cluster)
-}
-
-func (cs *ClusterService) DeleteCluster(c *fiber.Ctx) error {
-	clusterID := c.Params("clusterID")
-	if err := cs.clusterManager.RemoveCluster(clusterID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
-	}
-
-	return c.SendStatus(fiber.StatusOK)
 }

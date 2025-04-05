@@ -5,19 +5,27 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/jbetancur/dashboard/internal/pkg/providers"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 )
+
+// ClusterGetter defines the interface for retrieving cluster information
+type ClusterGetter interface {
+	GetClusterConnection(id string) (*ClusterConnection, error)
+}
 
 // ClusterManager handles multiple Kubernetes cluster connections
 type ClusterManager struct {
 	Clusters sync.Map // Replaces map[string]*ClusterConnection and sync.RWMutex
 	logger   *slog.Logger
+	provider providers.Provider
 }
 
 // ClusterConnection represents a Kubernetes cluster connection
@@ -26,101 +34,73 @@ type ClusterConnection struct {
 	Client   *kubernetes.Clientset
 	Informer informers.SharedInformerFactory
 	StopCh   chan struct{}
+	AuthDone bool // Tracks whether authentication has been completed
+
 }
 
 // NewClusterManager creates a new cluster manager
-func NewClusterManager(logger *slog.Logger) *ClusterManager {
+func NewClusterManager(logger *slog.Logger, provider providers.Provider) *ClusterManager {
 	return &ClusterManager{
-		logger: logger,
+		logger:   logger,
+		provider: provider,
 	}
 }
 
 // AddCluster adds a new cluster to the manager
-func (cm *ClusterManager) AddCluster(id, kubeconfigPath string) error {
-	// Check if cluster already exists
-	if _, exists := cm.GetCluster(id); exists == nil {
+func (cm *ClusterManager) RegisterCluster(id string) error {
+	// Check if the cluster already exists
+	if _, exists := cm.GetClusterConnection(id); exists == nil {
 		return fmt.Errorf("cluster %s already exists", id)
 	}
 
-	// Create Kubernetes client config with the specified context
-	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath}
-	configOverrides := &clientcmd.ConfigOverrides{
-		CurrentContext: id,
-	}
-	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-
-	restConfig, err := clientConfig.ClientConfig()
-	if err != nil {
-		return fmt.Errorf("failed to create REST config for context %s: %w", id, err)
-	}
-
-	// Create Kubernetes client
-	client, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes client: %w", err)
-	}
-
-	// Create informer factory
-	stopCh := make(chan struct{})
-	informer := informers.NewSharedInformerFactory(client, time.Minute*5)
-
-	// Store cluster
+	// Store the cluster metadata without authenticating
 	clusterConnection := &ClusterConnection{
-		ID:       id,
-		Client:   client,
-		Informer: informer,
-		StopCh:   stopCh,
+		ID:     id,
+		StopCh: make(chan struct{}),
 	}
 
 	cm.Clusters.Store(id, clusterConnection)
-
-	// Start informers
-	go informer.Start(stopCh)
-
-	cm.logger.Info("Cluster added successfully", "clusterID", id, "context", id)
+	cm.logger.Info("Cluster registered successfully (lazy authentication)", "clusterID", id)
 
 	return nil
 }
 
-// RemoveCluster removes a cluster and cleans up its resources
-func (cm *ClusterManager) RemoveCluster(id string) error {
-	value, exists := cm.GetCluster(id)
-	if exists != nil {
-		return fmt.Errorf("cluster %s not found", id)
-	}
-
-	cluster := value
-	// Stop informers
-	close(cluster.StopCh)
-
-	// Remove from map
-	cm.Clusters.Delete(id)
-
-	cm.logger.Info("Cluster removed successfully", "clusterID", id)
-
-	return nil
-}
-
-// GetCluster returns a cluster by ID
-func (cm *ClusterManager) GetCluster(id string) (*ClusterConnection, error) {
-	value, exists := cm.Clusters.Load(id)
+func (cm *ClusterManager) GetClusterConnection(clusterID string) (*ClusterConnection, error) {
+	// Check if the cluster is already initialized
+	value, exists := cm.Clusters.Load(clusterID)
 	if !exists {
-		return nil, fmt.Errorf("cluster %s not found", id)
+		return nil, fmt.Errorf("cluster %s is not registered", clusterID)
 	}
 
-	return value.(*ClusterConnection), nil
-}
+	cluster, ok := value.(*ClusterConnection)
+	if !ok || cluster == nil {
+		return nil, fmt.Errorf("cluster %s connection is invalid or nil", clusterID)
+	}
 
-// ListClusters returns all registered cluster IDs
-func (cm *ClusterManager) ListClusters() []string {
-	clusterIDs := []string{}
+	// Perform lazy authentication if the cluster is not yet authenticated
+	if !cluster.AuthDone {
+		cm.logger.Info("Authenticating cluster (lazy)", "clusterID", clusterID)
+		restConfig, err := cm.provider.Authenticate(clusterID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to authenticate cluster %s: %w", clusterID, err)
+		}
 
-	cm.Clusters.Range(func(key, value interface{}) bool {
-		clusterIDs = append(clusterIDs, key.(string))
-		return true
-	})
+		// Create Kubernetes client
+		client, err := kubernetes.NewForConfig(restConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Kubernetes client for cluster %s: %w", clusterID, err)
+		}
 
-	return clusterIDs
+		// Create informer factory
+		informer := informers.NewSharedInformerFactory(client, time.Minute*5)
+
+		// Update the cluster connection
+		cluster.Client = client
+		cluster.Informer = informer
+		cluster.AuthDone = true
+	}
+
+	return cluster, nil
 }
 
 // StopAllClusters stops all clusters and clears the map
@@ -137,8 +117,7 @@ func (cm *ClusterManager) StopAllClusters() {
 	})
 }
 
-// StartInformers is a generic function to start informers for multiple clusters concurrently
-func StartInformers(clusters []ClusterConfig, startInformer func(clusterID string) error) error {
+func StartInformers(clusters []providers.ClusterConfig, startInformer func(clusterID string) error) error {
 	errCh := make(chan error, len(clusters))
 	var wg sync.WaitGroup
 
@@ -170,6 +149,18 @@ func StartInformers(clusters []ClusterConfig, startInformer func(clusterID strin
 	return nil
 }
 
+// ListClusters returns all registered cluster IDs
+func (cm *ClusterManager) ListClusters() []string {
+	clusterIDs := []string{}
+
+	cm.Clusters.Range(func(key, value interface{}) bool {
+		clusterIDs = append(clusterIDs, key.(string))
+		return true
+	})
+
+	return clusterIDs
+}
+
 // ListResources is a generic function to list resources using a lister
 func ListResources[T any](ctx context.Context, clusterID string, lister func(labels.Selector) ([]T, error)) ([]T, error) {
 	resources, err := lister(labels.Everything())
@@ -193,4 +184,51 @@ func GetResource[T any](ctx context.Context, clusterID, resourceName string, get
 	}
 
 	return resource, nil
+}
+
+func (cm *ClusterManager) WithReauthentication(clusterID string, apiCall func(client *kubernetes.Clientset) error) error {
+	// Get the cluster connection
+	cluster, err := cm.GetClusterConnection(clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster: %w", err)
+	}
+
+	// Attempt the API call
+	err = apiCall(cluster.Client)
+	if err != nil {
+		// Check if the error is an authentication error
+		if isAuthenticationError(err) {
+			cm.logger.Warn("Authentication error detected, re-authenticating", "clusterID", clusterID)
+
+			// Re-authenticate the cluster
+			restConfig, authErr := cm.provider.Authenticate(clusterID)
+			if authErr != nil {
+				return fmt.Errorf("failed to re-authenticate cluster: %w", authErr)
+			}
+
+			// Reinitialize the cluster connection
+			client, clientErr := kubernetes.NewForConfig(restConfig)
+			if clientErr != nil {
+				return fmt.Errorf("failed to create Kubernetes client after re-authentication: %w", clientErr)
+			}
+
+			// Update the cluster connection
+			cluster.Client = client
+			cluster.Informer = informers.NewSharedInformerFactory(client, time.Minute*5)
+
+			// Retry the API call
+			return apiCall(client)
+		}
+
+		// Return the original error if it's not an authentication error
+		return err
+	}
+
+	return nil
+}
+
+// Helper function to detect authentication errors
+func isAuthenticationError(err error) bool {
+	// Check for specific error types or messages (e.g., 401 Unauthorized)
+	return err != nil && (strings.Contains(err.Error(), "Unauthorized") || strings.Contains(err.Error(), "expired"))
 }

@@ -1,0 +1,6 @@
+providers:
+  - name: kubeconfig_provider
+    path: "./build/plugins/kubeconfig_provider.so"
+    config:
+      kubeconfigPath: "/Users/john/.kube/config"
+

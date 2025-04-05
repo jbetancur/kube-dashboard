@@ -6,6 +6,8 @@ import (
 	"io"
 
 	"github.com/gofiber/websocket/v2"
+	"github.com/jbetancur/dashboard/internal/pkg/providers"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "k8s.io/api/core/v1"
@@ -14,18 +16,15 @@ import (
 
 // PodManager handles pod-related operations
 type PodManager struct {
-	clusterGetter ClusterGetter
-}
-
-// ClusterGetter defines the interface for retrieving cluster information
-type ClusterGetter interface {
-	GetCluster(id string) (*ClusterConnection, error)
+	clusterGetter  ClusterGetter
+	eventPublisher *EventPublisher
 }
 
 // NewPodManager creates a new PodManager
-func NewPodManager(cg ClusterGetter, clusters []ClusterConfig) (*PodManager, error) {
+func NewPodManager(eventPublisher *EventPublisher, cg ClusterGetter, clusters []providers.ClusterConfig) (*PodManager, error) {
 	pm := &PodManager{
-		clusterGetter: cg,
+		clusterGetter:  cg,
+		eventPublisher: eventPublisher,
 	}
 
 	// Use the generic StartInformers function
@@ -39,7 +38,7 @@ func NewPodManager(cg ClusterGetter, clusters []ClusterConfig) (*PodManager, err
 
 // StartPodInformer starts the pod informer for a specific cluster
 func (pm *PodManager) StartPodInformer(clusterID string) error {
-	cluster, err := pm.clusterGetter.GetCluster(clusterID)
+	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}
@@ -47,16 +46,16 @@ func (pm *PodManager) StartPodInformer(clusterID string) error {
 	podInformer := cluster.Informer.Core().V1().Pods().Informer()
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			_ = obj.(*v1.Pod)
-			// fmt.Printf("[Cluster %s] Pod added: %s/%s\n", clusterID, pod.Namespace, pod.Name)
+			pod := obj.(*v1.Pod)
+			pm.eventPublisher.PublishEvent("pod_added", "pod_events", clusterID, pod)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			_ = newObj.(*v1.Pod)
-			// fmt.Printf("[Cluster %s] Pod updated: %s/%s\n", clusterID, pod.Namespace, pod.Name)
+			pod := newObj.(*v1.Pod)
+			pm.eventPublisher.PublishEvent("pod_updated", "pod_events", clusterID, pod)
 		},
 		DeleteFunc: func(obj interface{}) {
-			_ = obj.(*v1.Pod)
-			// fmt.Printf("[Cluster %s] Pod deleted: %s/%s\n", clusterID, pod.Namespace, pod.Name)
+			pod := obj.(*v1.Pod)
+			pm.eventPublisher.PublishEvent("pod_deleted", "pod_events", clusterID, pod)
 		},
 	})
 
@@ -74,7 +73,7 @@ func (pm *PodManager) StartPodInformer(clusterID string) error {
 // ListPods retrieves all pods in a specific namespace for a given cluster
 func (pm *PodManager) ListPods(ctx context.Context, clusterID, namespace string) ([]v1.Pod, error) {
 	// Get the cluster from the ClusterManager
-	cluster, err := pm.clusterGetter.GetCluster(clusterID)
+	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster: %w", err)
 	}
@@ -96,7 +95,7 @@ func (pm *PodManager) ListPods(ctx context.Context, clusterID, namespace string)
 
 // GetPod retrieves a specific pod by name
 func (pm *PodManager) GetPod(ctx context.Context, clusterID, namespace, podName string) (*v1.Pod, error) {
-	cluster, err := pm.clusterGetter.GetCluster(clusterID)
+	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster: %w", err)
 	}
@@ -107,7 +106,7 @@ func (pm *PodManager) GetPod(ctx context.Context, clusterID, namespace, podName 
 
 // DeletePod deletes a pod by name
 func (pm *PodManager) DeletePod(ctx context.Context, clusterID, namespace, podName string) error {
-	cluster, err := pm.clusterGetter.GetCluster(clusterID)
+	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}
@@ -117,7 +116,7 @@ func (pm *PodManager) DeletePod(ctx context.Context, clusterID, namespace, podNa
 
 // StreamPodLogs streams logs from a pod to a WebSocket connection
 func (pm *PodManager) StreamPodLogs(ctx context.Context, clusterID, namespace, podName, containerName string, conn *websocket.Conn) error {
-	cluster, err := pm.clusterGetter.GetCluster(clusterID)
+	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}

@@ -10,7 +10,6 @@ func SetupRoutes(app *fiber.App, clusterService *services.ClusterService, podSer
 	// Cluster routes
 	app.Get("/clusters", clusterService.ListClusters)
 	app.Get("/clusters/:clusterID", clusterService.GetCluster)
-	app.Delete("/clusters/:clusterID", clusterService.DeleteCluster)
 
 	// Namespace routes
 	app.Get("/clusters/:clusterID/namespaces", namespaceService.ListNamespaces)

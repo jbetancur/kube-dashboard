@@ -14,7 +14,7 @@ Interface/contract with Web UI or other clients via REST and websockets
 
 ### Cluster Providers (Provider Interface)
 
-Handle discovery and authentication of Kubernetes clusters
+Handle discovery of Kubernetes clusters
 
 ### Core (Kube Informers)
 
@@ -25,6 +25,10 @@ Utilize Informers and caching to maintain and maintain state on changes with in 
 ### Tooling (TBD)
 
 Provide an TUI (Text UI) and CLI
+
+### Persistence/Hydration (MongoDB)
+
+Potentially, a backing database
 
 ## Testing websockets
 

@@ -8,6 +8,8 @@
 *.so
 *.dylib
 
+__debug
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -24,4 +26,7 @@ go.work.sum
 # env file
 .env
 
-kubeconfig*
+kubeconfig
+
+# build artifacts
+build/*

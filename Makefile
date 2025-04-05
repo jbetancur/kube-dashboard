@@ -2,11 +2,13 @@
 APP_NAME_API = kube-dashboard-api
 APP_NAME_TUI = kube-dashboard-tui
 BUILD_DIR = build
+PLUGIN_BUILD_DIR = ${BUILD_DIR}/plugins
+PLUGINS_PROVIDERS = ./plugins/providers
 GO_CMD = go
 
-# Default target$
+# Default target
 .PHONY: all
-all: build-api build-tui
+all: build-api build-tui build-plugins
 
 # Build the REST API
 .PHONY: build-api
@@ -21,6 +23,20 @@ build-tui:
 	@echo "Building TUI..."
 	$(GO_CMD) build -o $(BUILD_DIR)/$(APP_NAME_TUI) ./cmd/tui$
 	@echo "TUI built successfully: $(BUILD_DIR)/$(APP_NAME_TUI)"$
+
+# Build plugins
+.PHONY: build-plugins
+build-plugins:
+	@echo "Building plugins..."
+	mkdir -p $(PLUGIN_BUILD_DIR)
+
+	@for file in $(PLUGINS_PROVIDERS)/*.go; do \
+		plugin_name=$$(basename $$file .go); \
+		echo "Building plugin: $$plugin_name"; \
+		$(GO_CMD) build -buildmode=plugin -o $(PLUGIN_BUILD_DIR)/$$plugin_name.so $$file; \
+	done
+
+	@echo "Plugins built successfully: $(PLUGIN_BUILD_DIR)"
 
 # Clean build artifacts
 .PHONY: clean
@@ -39,4 +55,4 @@ $
 .PHONY: run-tui
 run-tui:
 	@echo "Running TUI..."
-	$(GO_CMD) run ./cmd/tui%
+	$(GO_CMD) run ./cmd/tui
