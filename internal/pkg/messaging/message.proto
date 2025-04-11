@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package messaging;
+
+// Specify the Go package for the generated code
+option go_package = "internal/pkg/messaging;messaging";
+
+service EventService {
+  // Publish an event
+  rpc PublishEvent (EventRequest) returns (EventResponse);
+
+  // Subscribe to a topic
+  rpc SubscribeEvent (SubscribeRequest) returns (SubscribeResponse);
+}
+
+message EventRequest {
+  string eventType = 1;
+  string topic = 2;
+  string clusterID = 3;
+  string payload = 4; // JSON-encoded payload
+}
+
+message EventResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message SubscribeRequest {
+  string topic = 1;
+}
+
+message SubscribeResponse {
+  bool success = 1;
+  string message = 2;
+}

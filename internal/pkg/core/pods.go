@@ -2,84 +2,91 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/gofiber/websocket/v2"
-	"github.com/jbetancur/dashboard/internal/pkg/providers"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/jbetancur/dashboard/internal/pkg/messaging"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 )
 
 // PodManager handles pod-related operations
 type PodManager struct {
-	clusterGetter  ClusterGetter
-	eventPublisher *EventPublisher
+	client         *kubernetes.Clientset
+	informer       informers.SharedInformerFactory
+	eventPublisher *messaging.GRPCClient
+	stopCh         chan struct{}
 }
 
 // NewPodManager creates a new PodManager
-func NewPodManager(eventPublisher *EventPublisher, cg ClusterGetter, clusters []providers.ClusterConfig) (*PodManager, error) {
-	pm := &PodManager{
-		clusterGetter:  cg,
+func NewPodManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clientset) *PodManager {
+	// Create a shared informer factory
+	informer := informers.NewSharedInformerFactory(client, time.Minute*5)
+
+	return &PodManager{
+		client:         client,
+		informer:       informer,
 		eventPublisher: eventPublisher,
+		stopCh:         make(chan struct{}),
 	}
-
-	// Use the generic StartInformers function
-	err := StartInformers(clusters, pm.StartPodInformer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize PodManager: %w", err)
-	}
-
-	return pm, nil
 }
 
-// StartPodInformer starts the pod informer for a specific cluster
-func (pm *PodManager) StartPodInformer(clusterID string) error {
-	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	podInformer := cluster.Informer.Core().V1().Pods().Informer()
+// StartInformer starts the pod informer
+func (pm *PodManager) StartInformer() error {
+	// Get the pod informer
+	podInformer := pm.informer.Core().V1().Pods().Informer()
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod := obj.(*v1.Pod)
-			pm.eventPublisher.PublishEvent("pod_added", "pod_events", clusterID, pod)
+			podBytes, err := json.Marshal(pod)
+			if err != nil {
+				fmt.Printf("failed to serialize namespace: %v\n", err)
+				return
+			}
+			pm.eventPublisher.Publish("pod_added", podBytes)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			pod := newObj.(*v1.Pod)
-			pm.eventPublisher.PublishEvent("pod_updated", "pod_events", clusterID, pod)
+			podBytes, err := json.Marshal(pod)
+			if err != nil {
+				fmt.Printf("failed to serialize namespace: %v\n", err)
+				return
+			}
+			pm.eventPublisher.Publish("pod_updated", podBytes)
 		},
 		DeleteFunc: func(obj interface{}) {
 			pod := obj.(*v1.Pod)
-			pm.eventPublisher.PublishEvent("pod_deleted", "pod_events", clusterID, pod)
+			podBytes, err := json.Marshal(pod)
+			if err != nil {
+				fmt.Printf("failed to serialize namespace: %v\n", err)
+				return
+			}
+			pm.eventPublisher.Publish("pod_deleted", podBytes)
 		},
 	})
 
 	// Start the informer
-	go cluster.Informer.Start(cluster.StopCh)
+	go podInformer.Run(pm.stopCh)
 
 	// Wait for the cache to sync
-	if !cache.WaitForCacheSync(cluster.StopCh, podInformer.HasSynced) {
-		return fmt.Errorf("failed to sync pod informer for cluster %s", clusterID)
+	if !cache.WaitForCacheSync(pm.stopCh, podInformer.HasSynced) {
+		return fmt.Errorf("failed to sync pod informer")
 	}
 
 	return nil
 }
 
-// ListPods retrieves all pods in a specific namespace for a given cluster
-func (pm *PodManager) ListPods(ctx context.Context, clusterID, namespace string) ([]v1.Pod, error) {
-	// Get the cluster from the ClusterManager
-	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	podLister := cluster.Informer.Core().V1().Pods().Lister().Pods(namespace).List
-	podPointers, err := ListResources(ctx, clusterID, podLister)
+// ListPods retrieves all pods in a specific namespace
+func (pm *PodManager) ListPods(ctx context.Context, namespace string) ([]v1.Pod, error) {
+	podLister := pm.informer.Core().V1().Pods().Lister().Pods(namespace).List
+	podPointers, err := ListResources(ctx, podLister)
 	if err != nil {
 		return nil, err
 	}
@@ -94,33 +101,18 @@ func (pm *PodManager) ListPods(ctx context.Context, clusterID, namespace string)
 }
 
 // GetPod retrieves a specific pod by name
-func (pm *PodManager) GetPod(ctx context.Context, clusterID, namespace, podName string) (*v1.Pod, error) {
-	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	podGetter := cluster.Informer.Core().V1().Pods().Lister().Pods(namespace).Get
-	return GetResource(ctx, clusterID, podName, podGetter)
+func (pm *PodManager) GetPod(ctx context.Context, namespace, podName string) (*v1.Pod, error) {
+	podGetter := pm.informer.Core().V1().Pods().Lister().Pods(namespace).Get
+	return GetResource(ctx, podName, podGetter)
 }
 
 // DeletePod deletes a pod by name
-func (pm *PodManager) DeletePod(ctx context.Context, clusterID, namespace, podName string) error {
-	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster: %w", err)
-	}
-
-	return cluster.Client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{})
+func (pm *PodManager) DeletePod(ctx context.Context, namespace, podName string) error {
+	return pm.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{})
 }
 
 // StreamPodLogs streams logs from a pod to a WebSocket connection
-func (pm *PodManager) StreamPodLogs(ctx context.Context, clusterID, namespace, podName, containerName string, conn *websocket.Conn) error {
-	cluster, err := pm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster: %w", err)
-	}
-
+func (pm *PodManager) StreamPodLogs(ctx context.Context, namespace, podName, containerName string, conn *websocket.Conn) error {
 	// Set up log options
 	podLogOpts := &v1.PodLogOptions{
 		Follow: true,
@@ -130,7 +122,7 @@ func (pm *PodManager) StreamPodLogs(ctx context.Context, clusterID, namespace, p
 	}
 
 	// Create a request to stream logs
-	req := cluster.Client.CoreV1().Pods(namespace).GetLogs(podName, podLogOpts)
+	req := pm.client.CoreV1().Pods(namespace).GetLogs(podName, podLogOpts)
 	stream, err := req.Stream(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to open log stream: %w", err)
@@ -156,4 +148,9 @@ func (pm *PodManager) StreamPodLogs(ctx context.Context, clusterID, namespace, p
 	}
 
 	return nil
+}
+
+// Stop stops the pod manager
+func (pm *PodManager) Stop() {
+	close(pm.stopCh)
 }

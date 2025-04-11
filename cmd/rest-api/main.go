@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -39,69 +40,76 @@ func main() {
 		logger.Info("Loaded provider plugin", "name", providerConfig.Name)
 	}
 
-	// Discover clusters
-	clusters, err := clusterProvider.DiscoverClusters()
+	// // Discover clusters
+	// clusters, err := clusterProvider.DiscoverClusters()
+	// if err != nil {
+	// 	logger.Error("Error discovering clusters", "error", err)
+	// 	return
+	// }
+
+	// Initialize the gRPC client
+	grpcClient := messaging.NewGRPCClient()
+	err = grpcClient.Connect("127.0.0.1:50051")
 	if err != nil {
-		logger.Error("Error discovering clusters", "error", err)
+		logger.Error("Failed to connect to gRPC server", "error", err)
 		return
 	}
 
+	// Initialize the gRPC server to handle incoming events
+	grpcServer := messaging.NewGRPCServer()
+	err = grpcServer.Start("127.0.0.1:50052") // Use a different port
+	if err != nil {
+		logger.Error("Failed to start gRPC server", "error", err)
+		return
+	}
+
+	logger.Info("Connected to gRPC server on 127.0.0.1:50051")
 	clusterManager := core.NewClusterManager(logger, clusterProvider)
-
-	// Add clusters to the ClusterManager
-	for _, cluster := range clusters {
-		if err := clusterManager.RegisterCluster(cluster.ID); err != nil {
-			logger.Error("Error adding cluster", "clusterID", cluster.ID, "error", err)
+	// Subscribe to cluster_registered
+	grpcServer.AddHandler("cluster_registered", func(message []byte) error {
+		var payload core.ClusterConnectionPayload
+		err := json.Unmarshal(message, &payload)
+		if err != nil {
+			logger.Error("Failed to unmarshal cluster connection event", "error", err)
+			return err
 		}
+
+		// Process the cluster connection event
+		// logger.Info("Received cluster connection event", "clusterName", payload.ClusterName, "apiURL", payload.APIURL)
+
+		// Add the cluster to the ClusterManager
+		err = clusterManager.Register(payload.ClusterName, payload.APIURL)
+		if err != nil {
+			logger.Error("Failed to add cluster to ClusterManager", "error", err)
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		logger.Error("Failed to subscribe to cluster_registered", "error", err)
+		return
 	}
 
-	// Initialize the message queue (e.g., gRPC, Kafka, RabbitMQ)
-	messageQueue := messaging.NewGRPCMessageQueue()
-	defer messageQueue.Close()
-
-	// Create the shared EventPublisher
-	eventPublisher := core.NewEventPublisher(messageQueue)
-
-	// Register subscribers for topics
-	err = messageQueue.Subscribe("pod_events", func(message []byte) error {
+	// Add handlers for events
+	grpcServer.AddHandler("pod_added", func(message []byte) error {
 		// logger.Info("Received pod event", "message", string(message))
-		// Process the pod event (e.g., store it in a database)
 		return nil
 	})
-	if err != nil {
-		logger.Error("Failed to subscribe to pod_events", "error", err)
-		return
-	}
 
-	err = messageQueue.Subscribe("namespace_events", func(message []byte) error {
+	grpcServer.AddHandler("namespace_added", func(message []byte) error {
 		// logger.Info("Received namespace event", "message", string(message))
-		// Process the namespace event (e.g., store it in a database)
 		return nil
 	})
-	if err != nil {
-		logger.Error("Failed to subscribe to namespace_events", "error", err)
-		return
-	}
-
-	namespaceManager, err := core.NewNamespaceManager(eventPublisher, clusterManager, clusters)
-	if err != nil {
-		logger.Error("Failed to initialize NamespaceManager", "error", err)
-		return
-	}
-
-	podManager, err := core.NewPodManager(eventPublisher, clusterManager, clusters)
-	if err != nil {
-		logger.Error("Failed to initialize PodManager", "error", err)
-		return
-	}
 
 	// Initialize services
 	clusterService := services.NewClusterService(clusterManager)
+
 	namespaceService := services.NewNamespaceService(namespaceManager, clusterManager)
-	podService := services.NewPodService(podManager, clusterManager)
+	// podService := services.NewPodService(podManager, clusterManager)
 
 	app := fiber.New()
-	router.SetupRoutes(app, clusterService, podService, namespaceService)
+	router.SetupRoutes(app, clusterService, namespaceService)
 
 	logger.Info("Starting server on :8081")
 	if err := app.Listen(":8081"); err != nil {

@@ -50,9 +50,18 @@ clean:
 run-api:
 	@echo "Running REST API..."
 	$(GO_CMD) run ./cmd/rest-api
-$
+
+# Run the Agent
+.PHONY: run-agent
+run-agent:
+	@echo "Running Agent..."
+	$(GO_CMD) run ./cmd/agent
+
 # Run the TUI
 .PHONY: run-tui
 run-tui:
 	@echo "Running TUI..."
 	$(GO_CMD) run ./cmd/tui
+
+
+# rotoc --go_out=. --go-grpc_out=. internal/pkg/messaging/message.proto

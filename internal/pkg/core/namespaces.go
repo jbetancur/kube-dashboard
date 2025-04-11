@@ -3,82 +3,88 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/jbetancur/dashboard/internal/pkg/providers"
+	"encoding/json"
+
+	"github.com/jbetancur/dashboard/internal/pkg/messaging"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 )
 
 // NamespaceManager handles namespace-related operations
 type NamespaceManager struct {
-	clusterGetter  ClusterGetter
-	eventPublisher *EventPublisher
+	client         *kubernetes.Clientset
+	informer       informers.SharedInformerFactory
+	eventPublisher *messaging.GRPCClient
+	stopCh         chan struct{}
 }
 
 // NewNamespaceManager creates a new NamespaceManager
-func NewNamespaceManager(eventPublisher *EventPublisher, cg ClusterGetter, clusters []providers.ClusterConfig) (*NamespaceManager, error) {
-	nm := &NamespaceManager{
-		clusterGetter:  cg,
+func NewNamespaceManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clientset) *NamespaceManager {
+	// Create a shared informer factory
+	informer := informers.NewSharedInformerFactory(client, time.Minute*5)
+
+	return &NamespaceManager{
+		client:         client,
+		informer:       informer,
 		eventPublisher: eventPublisher,
+		stopCh:         make(chan struct{}),
 	}
-
-	// Use the generic StartInformers function
-	err := StartInformers(clusters, nm.StartNamespaceInformer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize NamespaceManager: %w", err)
-	}
-
-	return nm, nil
 }
 
-// StartNamespaceInformer starts the namespace informer for a specific cluster
-func (nm *NamespaceManager) StartNamespaceInformer(clusterID string) error {
-	// Get the cluster from the ClusterManager
-	cluster, err := nm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster: %w", err)
-	}
-
+// StartInformer starts the namespace informer
+func (nm *NamespaceManager) StartInformer() error {
 	// Get the namespace informer
-	namespaceInformer := cluster.Informer.Core().V1().Namespaces().Informer()
+	namespaceInformer := nm.informer.Core().V1().Namespaces().Informer()
 	namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			ns := obj.(*v1.Namespace)
-			nm.eventPublisher.PublishEvent("namespace_added", "namespace_events", clusterID, ns)
+			nsBytes, err := json.Marshal(ns)
+			if err != nil {
+				fmt.Printf("failed to serialize namespace: %v\n", err)
+				return
+			}
+			nm.eventPublisher.Publish("namespace_added", nsBytes)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			ns := newObj.(*v1.Namespace)
-			nm.eventPublisher.PublishEvent("namespace_updated", "namespace_events", clusterID, ns)
+			nsBytes, err := json.Marshal(ns)
+			if err != nil {
+				fmt.Printf("failed to serialize namespace: %v\n", err)
+				return
+			}
+			nm.eventPublisher.Publish("namespace_updated", nsBytes)
 		},
 		DeleteFunc: func(obj interface{}) {
 			ns := obj.(*v1.Namespace)
-			nm.eventPublisher.PublishEvent("namespace_deleted", "namespace_events", clusterID, ns)
+			nsBytes, err := json.Marshal(ns)
+			if err != nil {
+				fmt.Printf("failed to serialize namespace: %v\n", err)
+				return
+			}
+			nm.eventPublisher.Publish("namespace_deleted", nsBytes)
 		},
 	})
 
 	// Start the informer
-	go namespaceInformer.Run(cluster.StopCh)
+	go namespaceInformer.Run(nm.stopCh)
 
 	// Wait for the cache to sync
-	if !cache.WaitForCacheSync(cluster.StopCh, namespaceInformer.HasSynced) {
-		return fmt.Errorf("failed to sync namespace informer for cluster %s", clusterID)
+	if !cache.WaitForCacheSync(nm.stopCh, namespaceInformer.HasSynced) {
+		return fmt.Errorf("failed to sync namespace informer")
 	}
 
 	return nil
 }
 
-// ListNamespaces retrieves all namespaces for a given cluster
-// ListNamespaces retrieves all namespaces for a given cluster
-func (nm *NamespaceManager) ListNamespaces(ctx context.Context, clusterID string) ([]v1.Namespace, error) {
-	// Get the cluster from the ClusterManager
-	cluster, err := nm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster: %w", err)
-	}
+// ListNamespaces retrieves all namespaces
+func (nm *NamespaceManager) ListNamespaces(ctx context.Context) ([]v1.Namespace, error) {
+	namespaceLister := nm.informer.Core().V1().Namespaces().Lister().List
 
-	namespaceLister := cluster.Informer.Core().V1().Namespaces().Lister().List
-
-	namespacesPtr, err := ListResources(ctx, clusterID, namespaceLister)
+	namespacesPtr, err := ListResources(ctx, namespaceLister)
 	if err != nil {
 		return nil, err
 	}
@@ -91,15 +97,14 @@ func (nm *NamespaceManager) ListNamespaces(ctx context.Context, clusterID string
 	return namespaces, nil
 }
 
-// GetNamespace retrieves a specific namespace by name for a given cluster
-func (nm *NamespaceManager) GetNamespace(ctx context.Context, clusterID, namespaceName string) (*v1.Namespace, error) {
-	// Get the cluster from the ClusterManager
-	cluster, err := nm.clusterGetter.GetClusterConnection(clusterID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster: %w", err)
-	}
+// GetNamespace retrieves a specific namespace by name
+func (nm *NamespaceManager) GetNamespace(ctx context.Context, namespaceName string) (*v1.Namespace, error) {
+	namespaceGetter := nm.informer.Core().V1().Namespaces().Lister().Get
 
-	namespaceGetter := cluster.Informer.Core().V1().Namespaces().Lister().Get
+	return GetResource(ctx, namespaceName, namespaceGetter)
+}
 
-	return GetResource(ctx, clusterID, namespaceName, namespaceGetter)
+// Stop stops the namespace manager
+func (nm *NamespaceManager) Stop() {
+	close(nm.stopCh)
 }

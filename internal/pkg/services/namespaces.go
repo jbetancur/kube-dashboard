@@ -1,9 +1,10 @@
 package services
 
 import (
+	"fmt"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/core"
-	"k8s.io/client-go/kubernetes"
 )
 
 type NamespaceService struct {
@@ -20,41 +21,39 @@ func NewNamespaceService(namespaceManager *core.NamespaceManager, clusterManager
 
 func (ns *NamespaceService) ListNamespaces(c *fiber.Ctx) error {
 	clusterID := c.Params("clusterID")
-
-	// Use WithReauthentication to handle token expiration
-	err := ns.clusterManager.WithReauthentication(clusterID, func(client *kubernetes.Clientset) error {
-		namespaces, err := ns.namespaceManager.ListNamespaces(c.Context(), clusterID)
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
-		}
-
-		return c.JSON(namespaces)
-	})
-
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	if clusterID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing cluster ID",
+		})
 	}
 
-	return nil
+	// Get the cluster connection
+	_, err := ns.clusterManager.GetCluster(clusterID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": fmt.Sprintf("cluster not found: %v", err),
+		})
+	}
+
+	// List namespaces from this specific cluster
+	namespaces, err := ns.namespaceManager.ListNamespaces(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": fmt.Sprintf("failed to list namespaces: %v", err),
+		})
+	}
+
+	return c.JSON(namespaces)
 }
 
 func (ns *NamespaceService) GetNamespace(c *fiber.Ctx) error {
-	clusterID := c.Params("clusterID")
+	// clusterID := c.Params("clusterID")
 	namespaceID := c.Params("namespaceID")
 
-	// Use WithReauthentication to handle token expiration
-	err := ns.clusterManager.WithReauthentication(clusterID, func(client *kubernetes.Clientset) error {
-		namespace, err := ns.namespaceManager.GetNamespace(c.Context(), clusterID, namespaceID)
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
-		}
-
-		return c.JSON(namespace)
-	})
-
+	namespace, err := ns.namespaceManager.GetNamespace(c.Context(), namespaceID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
 
-	return nil
+	return c.JSON(namespace)
 }
