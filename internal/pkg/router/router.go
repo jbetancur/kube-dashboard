@@ -2,10 +2,11 @@ package router
 
 import (
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/websocket/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/services"
 )
 
-func SetupRoutes(app *fiber.App, clusterService *services.ClusterService, namespaceService *services.NamespaceService) {
+func SetupRoutes(app *fiber.App, clusterService *services.ClusterService, namespaceService *services.NamespaceService, podService *services.PodService) {
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.SendString("OK")
 	})
@@ -17,8 +18,8 @@ func SetupRoutes(app *fiber.App, clusterService *services.ClusterService, namesp
 	app.Get("/clusters/:clusterID/namespaces", namespaceService.ListNamespaces)
 	app.Get("/clusters/:clusterID/namespaces/:namespaceID", namespaceService.GetNamespace)
 
-	// // Pod routes
-	// app.Get("/clusters/:clusterID/:namespace/pods", podService.ListPods)
-	// app.Get("/clusters/:clusterID/:namespace/pods/:podID", podService.GetPod)
-	// app.Get("/ws/podlogs/:clusterID/:namespace/:podName/:containerName?", websocket.New(podService.StreamPodLogs))
+	// Pod routes
+	app.Get("/clusters/:clusterID/namespaces/:namespaceID/pods", podService.ListPods)
+	app.Get("/clusters/:clusterID/namespaces/:namespaceID/pods/:podID", podService.GetPod)
+	app.Get("/clusters/:clusterID/namespaces/:namespaceID/:podName/:containerName?", websocket.New(podService.StreamPodLogs))
 }

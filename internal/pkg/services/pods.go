@@ -1,7 +1,7 @@
 package services
 
 import (
-	"context"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
@@ -9,53 +9,94 @@ import (
 )
 
 type PodService struct {
-	podManager     *core.PodManager
-	clusterManager *core.ClusterManager
+	podProvider core.PodProvider
 }
 
-func NewPodService(podManager *core.PodManager, clusterManager *core.ClusterManager) *PodService {
+func NewPodService(podProvider core.PodProvider) *PodService {
 	return &PodService{
-		podManager:     podManager,
-		clusterManager: clusterManager,
+		podProvider: podProvider,
 	}
 }
 
 func (ps *PodService) ListPods(c *fiber.Ctx) error {
 	clusterID := c.Params("clusterID")
-	// namespace := c.Params("namespace")
+	namespace := c.Params("namespaceID")
 
-	pods, err := ps.podManager.ListPods(c.Context(), clusterID)
+	if clusterID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing cluster ID",
+		})
+	}
+
+	if namespace == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing namespace",
+		})
+	}
+
+	// List pods from this specific cluster and namespace
+	pods, err := ps.podProvider.ListPods(c.Context(), clusterID, namespace)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": fmt.Sprintf("failed to list pods: %v", err),
+		})
 	}
 
 	return c.JSON(pods)
-
 }
 
 func (ps *PodService) GetPod(c *fiber.Ctx) error {
 	clusterID := c.Params("clusterID")
-	namespace := c.Params("namespace")
-	// podID := c.Params("podID")
+	namespace := c.Params("namespaceID")
+	podID := c.Params("podID")
 
-	pod, err := ps.podManager.GetPod(c.Context(), clusterID, namespace)
+	if clusterID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing cluster ID",
+		})
+	}
+
+	if namespace == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing namespace",
+		})
+	}
+
+	if podID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing pod ID",
+		})
+	}
+
+	pod, err := ps.podProvider.GetPod(c.Context(), clusterID, namespace, podID)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": fmt.Sprintf("failed to get pod: %v", err),
+		})
 	}
 
 	return c.JSON(pod)
 }
 
-func (ps *PodService) StreamPodLogs(conn *websocket.Conn) {
-	clusterID := conn.Params("clusterID")
-	namespace := conn.Params("namespace")
-	podName := conn.Params("podName")
-	// Use WithReauthentication to handle token expiration
-	err := ps.podManager.StreamPodLogs(context.Background(), clusterID, namespace, podName, conn)
+// This is for the websocket pod logs streaming
+func (ps *PodService) StreamPodLogs(c *websocket.Conn) {
+	clusterID := c.Params("clusterID")
+	namespace := c.Params("namespace")
+	podName := c.Params("podName")
+	// containerName := c.Params("containerName")
 
-	if err != nil {
-		// Close the WebSocket connection on error
-		conn.WriteMessage(websocket.TextMessage, []byte("Error streaming logs: "+err.Error()))
-		conn.Close()
+	if clusterID == "" || namespace == "" || podName == "" {
+		c.WriteJSON(fiber.Map{
+			"error": "missing required parameters",
+		})
+		c.Close()
+		return
 	}
+
+	// This would need a different implementation since we can't directly use PodManager's StreamPodLogs
+	// You'd need to extend the PodProvider interface to support this or handle it differently
+	c.WriteJSON(fiber.Map{
+		"error": "pod logs streaming not implemented yet",
+	})
+	c.Close()
 }

@@ -74,9 +74,6 @@ func main() {
 			return err
 		}
 
-		// Process the cluster connection event
-		// logger.Info("Received cluster connection event", "clusterName", payload.ClusterName, "apiURL", payload.APIURL)
-
 		// Add the cluster to the ClusterManager
 		err = clusterManager.Register(payload.ClusterName, payload.APIURL)
 		if err != nil {
@@ -105,11 +102,15 @@ func main() {
 	// Initialize services
 	clusterService := services.NewClusterService(clusterManager)
 
-	namespaceService := services.NewNamespaceService(namespaceManager, clusterManager)
-	// podService := services.NewPodService(podManager, clusterManager)
+	// Create a multi-cluster namespace provider (no informers)
+	namespaceProvider := core.NewMultiClusterNamespaceProvider(clusterManager)
+	namespaceService := services.NewNamespaceService(namespaceProvider)
+
+	podProvider := core.NewMultiClusterPodProvider(clusterManager)
+	podService := services.NewPodService(podProvider)
 
 	app := fiber.New()
-	router.SetupRoutes(app, clusterService, namespaceService)
+	router.SetupRoutes(app, clusterService, namespaceService, podService)
 
 	logger.Info("Starting server on :8081")
 	if err := app.Listen(":8081"); err != nil {

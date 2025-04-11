@@ -8,14 +8,12 @@ import (
 )
 
 type NamespaceService struct {
-	clusterManager   *core.ClusterManager
-	namespaceManager *core.NamespaceManager
+	namespaceProvider core.NamespaceProvider
 }
 
-func NewNamespaceService(namespaceManager *core.NamespaceManager, clusterManager *core.ClusterManager) *NamespaceService {
+func NewNamespaceService(namespaceProvider core.NamespaceProvider) *NamespaceService {
 	return &NamespaceService{
-		namespaceManager: namespaceManager,
-		clusterManager:   clusterManager,
+		namespaceProvider: namespaceProvider,
 	}
 }
 
@@ -27,16 +25,8 @@ func (ns *NamespaceService) ListNamespaces(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get the cluster connection
-	_, err := ns.clusterManager.GetCluster(clusterID)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("cluster not found: %v", err),
-		})
-	}
-
 	// List namespaces from this specific cluster
-	namespaces, err := ns.namespaceManager.ListNamespaces(c.Context())
+	namespaces, err := ns.namespaceProvider.ListNamespaces(c.Context(), clusterID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": fmt.Sprintf("failed to list namespaces: %v", err),
@@ -47,12 +37,26 @@ func (ns *NamespaceService) ListNamespaces(c *fiber.Ctx) error {
 }
 
 func (ns *NamespaceService) GetNamespace(c *fiber.Ctx) error {
-	// clusterID := c.Params("clusterID")
+	clusterID := c.Params("clusterID")
 	namespaceID := c.Params("namespaceID")
 
-	namespace, err := ns.namespaceManager.GetNamespace(c.Context(), namespaceID)
+	if clusterID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing cluster ID",
+		})
+	}
+
+	if namespaceID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "missing namespace ID",
+		})
+	}
+
+	namespace, err := ns.namespaceProvider.GetNamespace(c.Context(), clusterID, namespaceID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": fmt.Sprintf("failed to get namespace: %v", err),
+		})
 	}
 
 	return c.JSON(namespace)

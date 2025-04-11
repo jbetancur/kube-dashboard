@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -78,30 +77,6 @@ func (nm *NamespaceManager) StartInformer() error {
 	}
 
 	return nil
-}
-
-// ListNamespaces retrieves all namespaces
-func (nm *NamespaceManager) ListNamespaces(ctx context.Context) ([]v1.Namespace, error) {
-	namespaceLister := nm.informer.Core().V1().Namespaces().Lister().List
-
-	namespacesPtr, err := ListResources(ctx, namespaceLister)
-	if err != nil {
-		return nil, err
-	}
-
-	namespaces := make([]v1.Namespace, len(namespacesPtr))
-	for i, nsPtr := range namespacesPtr {
-		namespaces[i] = *nsPtr
-	}
-
-	return namespaces, nil
-}
-
-// GetNamespace retrieves a specific namespace by name
-func (nm *NamespaceManager) GetNamespace(ctx context.Context, namespaceName string) (*v1.Namespace, error) {
-	namespaceGetter := nm.informer.Core().V1().Namespaces().Lister().Get
-
-	return GetResource(ctx, namespaceName, namespaceGetter)
 }
 
 // Stop stops the namespace manager
