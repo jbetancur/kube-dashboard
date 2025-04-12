@@ -1,62 +1,61 @@
 package services
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/jbetancur/dashboard/internal/pkg/core"
+	"github.com/jbetancur/dashboard/internal/pkg/resources/namespaces"
 )
 
 type NamespaceService struct {
-	namespaceProvider core.NamespaceProvider
+	BaseService
+	provider *namespaces.MultiClusterNamespaceProvider
 }
 
-func NewNamespaceService(namespaceProvider core.NamespaceProvider) *NamespaceService {
+func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, logger *slog.Logger) *NamespaceService {
 	return &NamespaceService{
-		namespaceProvider: namespaceProvider,
+		BaseService: BaseService{Logger: logger},
+		provider:    provider,
 	}
 }
 
-func (ns *NamespaceService) ListNamespaces(c *fiber.Ctx) error {
+func (s *NamespaceService) ListNamespaces(c *fiber.Ctx) error {
 	clusterID := c.Params("clusterID")
 	if clusterID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "missing cluster ID",
-		})
+		return s.BadRequest(c, "missing cluster ID")
 	}
 
-	// List namespaces from this specific cluster
-	namespaces, err := ns.namespaceProvider.ListNamespaces(c.Context(), clusterID)
+	s.Logger.Info("Listing namespaces", "clusterID", clusterID)
+
+	namespaces, err := s.provider.ListNamespaces(c.Context(), clusterID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": fmt.Sprintf("failed to list namespaces: %v", err),
-		})
+		return s.Error(c, fiber.StatusInternalServerError, "failed to list namespaces: %v", err)
 	}
 
 	return c.JSON(namespaces)
 }
 
-func (ns *NamespaceService) GetNamespace(c *fiber.Ctx) error {
+func (s *NamespaceService) GetNamespace(c *fiber.Ctx) error {
 	clusterID := c.Params("clusterID")
 	namespaceID := c.Params("namespaceID")
 
 	if clusterID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "missing cluster ID",
-		})
+		return s.BadRequest(c, "missing cluster ID")
 	}
 
 	if namespaceID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "missing namespace ID",
-		})
+		return s.BadRequest(c, "missing namespace ID")
 	}
 
-	namespace, err := ns.namespaceProvider.GetNamespace(c.Context(), clusterID, namespaceID)
+	s.Logger.Info("Getting namespace", "clusterID", clusterID, "namespaceID", namespaceID)
+
+	namespace, err := s.provider.GetNamespace(c.Context(), clusterID, namespaceID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": fmt.Sprintf("failed to get namespace: %v", err),
-		})
+		return s.Error(c, fiber.StatusInternalServerError, "failed to get namespace: %v", err)
+	}
+
+	if namespace == nil {
+		return s.NotFound(c, "Namespace", namespaceID)
 	}
 
 	return c.JSON(namespace)

@@ -39,7 +39,7 @@ func NewGRPCClient() *GRPCClient {
 }
 
 // Start initializes and starts the gRPC server
-func (s *GRPCServer) Start(address string) error {
+func (s *GRPCServer) Start(ctx context.Context, address string) error {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", address, err)
@@ -56,6 +56,12 @@ func (s *GRPCServer) Start(address string) error {
 	}()
 
 	fmt.Printf("gRPC server started on %s\n", address)
+
+	go func() {
+		<-ctx.Done()
+		s.Stop()
+	}()
+
 	return nil
 }
 
@@ -100,7 +106,7 @@ func (s *GRPCServer) AddHandler(topic string, handler func([]byte) error) {
 }
 
 // Client methods
-func (c *GRPCClient) Connect(address string) error {
+func (c *GRPCClient) Connect(ctx context.Context, address string) error {
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %w", err)
@@ -108,6 +114,12 @@ func (c *GRPCClient) Connect(address string) error {
 
 	c.conn = conn
 	c.client = NewEventServiceClient(conn)
+
+	go func() {
+		<-ctx.Done()
+		c.Close()
+	}()
+
 	return nil
 }
 
@@ -121,4 +133,18 @@ func (c *GRPCClient) Publish(topic string, message []byte) error {
 		Payload: string(message),
 	})
 	return err
+}
+
+// Close closes the gRPC client connection
+func (c *GRPCClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.conn != nil {
+		err := c.conn.Close()
+		c.conn = nil
+		c.client = nil
+		return err
+	}
+	return nil
 }

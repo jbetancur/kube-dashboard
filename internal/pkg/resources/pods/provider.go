@@ -1,20 +1,22 @@
-package core
+package pods
 
 import (
 	"context"
 	"fmt"
+	"io"
 
+	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // MultiClusterPodProvider implements PodProvider for multiple clusters
 type MultiClusterPodProvider struct {
-	clusterManager *ClusterManager
+	clusterManager *cluster.Manager
 }
 
 // NewMultiClusterPodProvider creates a new provider
-func NewMultiClusterPodProvider(clusterManager *ClusterManager) *MultiClusterPodProvider {
+func NewMultiClusterPodProvider(clusterManager *cluster.Manager) *MultiClusterPodProvider {
 	return &MultiClusterPodProvider{
 		clusterManager: clusterManager,
 	}
@@ -52,4 +54,26 @@ func (p *MultiClusterPodProvider) GetPod(ctx context.Context, clusterID, namespa
 	}
 
 	return pod, nil
+}
+
+// Add this method to MultiClusterPodProvider
+func (p *MultiClusterPodProvider) GetPodLogs(ctx context.Context, clusterID, namespace, podName, containerName string, tailLines int64) (io.ReadCloser, error) {
+	// Get the cluster connection
+	conn, err := p.clusterManager.GetCluster(clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("cluster not found: %w", err)
+	}
+
+	// Prepare log options
+	options := &v1.PodLogOptions{
+		Container: containerName,
+		Follow:    true,
+	}
+
+	if tailLines > 0 {
+		options.TailLines = &tailLines
+	}
+
+	// Get the logs stream
+	return conn.Client.CoreV1().Pods(namespace).GetLogs(podName, options).Stream(ctx)
 }

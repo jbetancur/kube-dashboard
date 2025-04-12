@@ -1,44 +1,72 @@
 package services
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/jbetancur/dashboard/internal/pkg/core"
+	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 )
 
-// ClusterService handles cluster-related operations
 type ClusterService struct {
-	clusterManager *core.ClusterManager
+	BaseService
+	manager *cluster.Manager
 }
 
-// NewClusterService creates a new ClusterService
-func NewClusterService(clusterManager *core.ClusterManager) *ClusterService {
+func NewClusterService(manager *cluster.Manager, logger *slog.Logger) *ClusterService {
 	return &ClusterService{
-		clusterManager: clusterManager,
+		BaseService: BaseService{Logger: logger},
+		manager:     manager,
 	}
 }
 
-// ListClusters returns a list of all registered clusters
-func (cs *ClusterService) ListClusters(c *fiber.Ctx) error {
-	clusters := cs.clusterManager.ListClusters()
-	return c.JSON(fiber.Map{
-		"clusters": clusters,
-	})
+func (s *ClusterService) ListClusters(c *fiber.Ctx) error {
+	s.Logger.Info("Listing clusters")
+
+	clusterIDs := s.manager.ListClusters()
+
+	// Format the response
+	response := make([]map[string]interface{}, len(clusterIDs))
+	for i, id := range clusterIDs {
+		response[i] = map[string]interface{}{
+			"id":   id,
+			"name": id, // Using ID as name for now
+		}
+	}
+
+	return c.JSON(response)
 }
 
-// GetCluster retrieves a specific cluster connection
-func (cs *ClusterService) GetCluster(c *fiber.Ctx) error {
+func (s *ClusterService) GetCluster(c *fiber.Ctx) error {
 	clusterID := c.Params("clusterID")
-
-	cluster, err := cs.clusterManager.GetCluster(clusterID)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("failed to get cluster %s: %v", clusterID, err),
-		})
+	if clusterID == "" {
+		return s.BadRequest(c, "missing cluster ID")
 	}
 
-	return c.JSON(fiber.Map{
-		"clusterID": cluster.ID,
-	})
+	s.Logger.Info("Getting cluster", "clusterID", clusterID)
+
+	// Get the cluster
+	cluster, err := s.manager.GetCluster(clusterID)
+	if err != nil {
+		return s.NotFound(c, "Cluster", clusterID)
+	}
+
+	// Get cluster health status
+	healthy, err := cluster.GetHealthStatus()
+	healthStatus := "unknown"
+	if err == nil {
+		if healthy {
+			healthStatus = "healthy"
+		} else {
+			healthStatus = "unhealthy"
+		}
+	}
+
+	// Format the response
+	response := map[string]interface{}{
+		"id":     clusterID,
+		"name":   clusterID, // Using ID as name for now
+		"status": healthStatus,
+	}
+
+	return c.JSON(response)
 }

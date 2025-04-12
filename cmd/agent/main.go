@@ -10,14 +10,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jbetancur/dashboard/internal/pkg/core"
+	"github.com/jbetancur/dashboard/internal/pkg/client"
+	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"github.com/jbetancur/dashboard/internal/pkg/messaging"
+	"github.com/jbetancur/dashboard/internal/pkg/resources/namespaces"
+	"github.com/jbetancur/dashboard/internal/pkg/resources/pods"
 )
 
 type ClusterManagers struct {
 	Cluster          string
-	NamespaceManager *core.NamespaceManager
-	PodManager       *core.PodManager
+	NamespaceManager *namespaces.Manager
+	PodManager       *pods.Manager
 	// Add other managers as needed
 }
 
@@ -41,16 +44,20 @@ func main() {
 		cancel()
 	}()
 
-	// Load Kubernetes configuration
-	kubeClient, err := core.NewKubeClient(logger)
+	// Initialize the client manager
+	clientManager, err := client.NewClientManager(logger)
 	if err != nil {
-		logger.Error("Failed to create Kubernetes client", "error", err)
+		logger.Error("Failed to create client manager", "error", err)
 		return
 	}
+	defer clientManager.Stop()
+
+	// Get all available clients
+	kubeClients := clientManager.GetClients()
 
 	// Initialize the gRPC server
 	grpcServer := messaging.NewGRPCServer()
-	err = grpcServer.Start(":50051")
+	err = grpcServer.Start(ctx, ":50050")
 	if err != nil {
 		logger.Error("Failed to start gRPC server", "error", err)
 		return
@@ -58,7 +65,7 @@ func main() {
 
 	// Initialize the gRPC client to publish events
 	grpcClient := messaging.NewGRPCClient()
-	err = grpcClient.Connect(":50052") // Connect to REST API's server
+	err = grpcClient.Connect(ctx, ":50052") // Connect to REST API's server
 	if err != nil {
 		logger.Error("Failed to connect to REST API", "error", err)
 		return
@@ -73,11 +80,11 @@ func main() {
 
 	var managers []*ClusterManagers
 
-	for _, client := range kubeClient {
-		manager, err := setupClusterManagers(grpcClient, client, logger)
+	for _, kubeClient := range kubeClients {
+		manager, err := setupClusterManagers(grpcClient, kubeClient, logger)
 		if err != nil {
 			logger.Error("Failed to set up managers for cluster",
-				"cluster", client.Cluster,
+				"cluster", kubeClient.Cluster,
 				"error", err)
 			continue
 		}
@@ -91,40 +98,20 @@ func main() {
 	defer stopAllInformers(managers, logger)
 
 	<-ctx.Done()
-	logger.Info("Shutting down agent...")
-
-	// Give time for clean shutdown
-	shutdownTimeout := time.NewTimer(10 * time.Second)
-	shutdownComplete := make(chan struct{})
-
-	go func() {
-		// Perform cleanup
-		if grpcServer != nil {
-			grpcServer.Stop()
-		}
-
-		close(shutdownComplete)
-	}()
-
-	select {
-	case <-shutdownComplete:
-		logger.Info("Graceful shutdown completed")
-	case <-shutdownTimeout.C:
-		logger.Warn("Shutdown timed out, forcing exit")
-	}
+	logger.Info("Context done, shutting down")
 }
 
-func setupClusterManagers(grpcClient *messaging.GRPCClient, client *core.ClusterConfig, logger *slog.Logger) (*ClusterManagers, error) {
-	// Send cluster registration
-	err := core.PublishCluster(grpcClient, client.Cluster, client.Config.Host, logger)
+func setupClusterManagers(grpcClient *messaging.GRPCClient, client *client.ClusterConfig, logger *slog.Logger) (*ClusterManagers, error) {
+	// Send cluster registration using the new package
+	err := cluster.PublishConnection(grpcClient, client.Cluster, client.Config.Host, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to publish cluster: %w", err)
 	}
 
 	return &ClusterManagers{
 		Cluster:          client.Cluster,
-		NamespaceManager: core.NewNamespaceManager(grpcClient, client.Client),
-		PodManager:       core.NewPodManager(grpcClient, client.Client),
+		NamespaceManager: namespaces.NewManager(grpcClient, client.Client),
+		PodManager:       pods.NewManager(grpcClient, client.Client),
 	}, nil
 }
 

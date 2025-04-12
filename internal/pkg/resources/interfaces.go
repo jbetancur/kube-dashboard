@@ -1,24 +1,27 @@
-package core
+package resources
 
 import (
 	"context"
 	"fmt"
 	"sort"
 
-	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-// NamespaceProvider defines the interface for namespace operations
-type NamespaceProvider interface {
-	ListNamespaces(ctx context.Context, clusterID string) ([]v1.Namespace, error)
-	GetNamespace(ctx context.Context, clusterID, namespaceName string) (*v1.Namespace, error)
+// ResourceManager is the base interface for all resource managers
+type ResourceManager interface {
+	// StartInformer starts the resource informer
+	StartInformer(ctx context.Context) error
+
+	// Stop stops the resource informer
+	Stop()
 }
 
-// PodProvider defines the interface for pod operations across clusters
-type PodProvider interface {
-	ListPods(ctx context.Context, clusterID, namespace string) ([]v1.Pod, error)
-	GetPod(ctx context.Context, clusterID, namespace, podName string) (*v1.Pod, error)
+// ResourceProvider is the base interface for all resource providers
+type ResourceProvider interface {
+	// GetResourceType returns the resource type name
+	GetResourceType() string
 }
 
 // ListResources is a generic function to list resources using a lister
@@ -44,4 +47,18 @@ func GetResource[T any](ctx context.Context, resourceName string, getter func(st
 	}
 
 	return resource, nil
+}
+
+// ObjectMeta extracts common metadata from any Kubernetes resource
+func ObjectMeta(obj interface{}) metav1.ObjectMeta {
+	if obj, ok := obj.(metav1.Object); ok {
+		return metav1.ObjectMeta{
+			Name:              obj.GetName(),
+			Namespace:         obj.GetNamespace(),
+			CreationTimestamp: obj.GetCreationTimestamp(),
+			Labels:            obj.GetLabels(),
+			Annotations:       obj.GetAnnotations(),
+		}
+	}
+	return metav1.ObjectMeta{}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -8,15 +9,21 @@ import (
 	"plugin"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"github.com/jbetancur/dashboard/internal/pkg/config"
-	"github.com/jbetancur/dashboard/internal/pkg/core"
 	"github.com/jbetancur/dashboard/internal/pkg/messaging"
 	"github.com/jbetancur/dashboard/internal/pkg/providers"
+	"github.com/jbetancur/dashboard/internal/pkg/resources/namespaces"
+	"github.com/jbetancur/dashboard/internal/pkg/resources/pods"
 	"github.com/jbetancur/dashboard/internal/pkg/router"
 	"github.com/jbetancur/dashboard/internal/pkg/services"
 )
 
 func main() {
+	// Create a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Initialize slog with a TextHandler (human-readable logs)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger) // Set as the default logger
@@ -49,7 +56,7 @@ func main() {
 
 	// Initialize the gRPC client
 	grpcClient := messaging.NewGRPCClient()
-	err = grpcClient.Connect("127.0.0.1:50051")
+	err = grpcClient.Connect(ctx, ":50050")
 	if err != nil {
 		logger.Error("Failed to connect to gRPC server", "error", err)
 		return
@@ -57,36 +64,34 @@ func main() {
 
 	// Initialize the gRPC server to handle incoming events
 	grpcServer := messaging.NewGRPCServer()
-	err = grpcServer.Start("127.0.0.1:50052") // Use a different port
+	err = grpcServer.Start(ctx, ":50052") // Use a different port
 	if err != nil {
 		logger.Error("Failed to start gRPC server", "error", err)
 		return
 	}
 
-	logger.Info("Connected to gRPC server on 127.0.0.1:50051")
-	clusterManager := core.NewClusterManager(logger, clusterProvider)
-	// Subscribe to cluster_registered
+	logger.Info("Connected to gRPC server on :50051")
+	// Create a cluster manager with context for lifecycle management
+	clusterManager := cluster.NewManager(ctx, logger, clusterProvider)
+
+	// Subscribe to cluster_registered events
 	grpcServer.AddHandler("cluster_registered", func(message []byte) error {
-		var payload core.ClusterConnectionPayload
+		var payload cluster.ConnectionPayload
 		err := json.Unmarshal(message, &payload)
 		if err != nil {
 			logger.Error("Failed to unmarshal cluster connection event", "error", err)
 			return err
 		}
 
-		// Add the cluster to the ClusterManager
+		// Register the cluster
 		err = clusterManager.Register(payload.ClusterName, payload.APIURL)
 		if err != nil {
-			logger.Error("Failed to add cluster to ClusterManager", "error", err)
+			logger.Error("Failed to register cluster", "error", err)
 			return err
 		}
 
 		return nil
 	})
-	if err != nil {
-		logger.Error("Failed to subscribe to cluster_registered", "error", err)
-		return
-	}
 
 	// Add handlers for events
 	grpcServer.AddHandler("pod_added", func(message []byte) error {
@@ -100,14 +105,14 @@ func main() {
 	})
 
 	// Initialize services
-	clusterService := services.NewClusterService(clusterManager)
+	clusterService := services.NewClusterService(clusterManager, logger)
 
 	// Create a multi-cluster namespace provider (no informers)
-	namespaceProvider := core.NewMultiClusterNamespaceProvider(clusterManager)
-	namespaceService := services.NewNamespaceService(namespaceProvider)
+	namespaceProvider := namespaces.NewMultiClusterNamespaceProvider(clusterManager)
+	namespaceService := services.NewNamespaceService(namespaceProvider, logger)
 
-	podProvider := core.NewMultiClusterPodProvider(clusterManager)
-	podService := services.NewPodService(podProvider)
+	podProvider := pods.NewMultiClusterPodProvider(clusterManager)
+	podService := services.NewPodService(podProvider, logger)
 
 	app := fiber.New()
 	router.SetupRoutes(app, clusterService, namespaceService, podService)

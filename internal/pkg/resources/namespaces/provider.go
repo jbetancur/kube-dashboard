@@ -1,20 +1,21 @@
-package core
+package namespaces
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // MultiClusterNamespaceProvider implements NamespaceProvider for multiple clusters
 type MultiClusterNamespaceProvider struct {
-	clusterManager *ClusterManager
+	clusterManager *cluster.Manager
 }
 
 // NewMultiClusterNamespaceProvider creates a new provider
-func NewMultiClusterNamespaceProvider(clusterManager *ClusterManager) *MultiClusterNamespaceProvider {
+func NewMultiClusterNamespaceProvider(clusterManager *cluster.Manager) *MultiClusterNamespaceProvider {
 	return &MultiClusterNamespaceProvider{
 		clusterManager: clusterManager,
 	}

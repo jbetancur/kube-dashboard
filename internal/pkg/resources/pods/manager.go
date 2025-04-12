@@ -1,4 +1,4 @@
-package core
+package pods
 
 import (
 	"encoding/json"
@@ -13,20 +13,20 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// PodManager handles pod-related operations
-type PodManager struct {
+// Manager handles pod-related operations
+type Manager struct {
 	client         *kubernetes.Clientset
 	informer       informers.SharedInformerFactory
 	eventPublisher *messaging.GRPCClient
 	stopCh         chan struct{}
 }
 
-// NewPodManager creates a new PodManager
-func NewPodManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clientset) *PodManager {
+// NewManager creates a new Manager
+func NewManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clientset) *Manager {
 	// Create a shared informer factory
 	informer := informers.NewSharedInformerFactory(client, time.Minute*5)
 
-	return &PodManager{
+	return &Manager{
 		client:         client,
 		informer:       informer,
 		eventPublisher: eventPublisher,
@@ -35,7 +35,7 @@ func NewPodManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clie
 }
 
 // StartInformer starts the pod informer
-func (pm *PodManager) StartInformer() error {
+func (pm *Manager) StartInformer() error {
 	// Get the pod informer
 	podInformer := pm.informer.Core().V1().Pods().Informer()
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -80,6 +80,6 @@ func (pm *PodManager) StartInformer() error {
 }
 
 // Stop stops the pod manager
-func (pm *PodManager) Stop() {
+func (pm *Manager) Stop() {
 	close(pm.stopCh)
 }

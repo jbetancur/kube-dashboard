@@ -1,4 +1,4 @@
-package core
+package namespaces
 
 import (
 	"fmt"
@@ -13,20 +13,20 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// NamespaceManager handles namespace-related operations
-type NamespaceManager struct {
+// Manager handles namespace-related operations
+type Manager struct {
 	client         *kubernetes.Clientset
 	informer       informers.SharedInformerFactory
 	eventPublisher *messaging.GRPCClient
 	stopCh         chan struct{}
 }
 
-// NewNamespaceManager creates a new NamespaceManager
-func NewNamespaceManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clientset) *NamespaceManager {
+// NewManager creates a new Manager
+func NewManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clientset) *Manager {
 	// Create a shared informer factory
 	informer := informers.NewSharedInformerFactory(client, time.Minute*5)
 
-	return &NamespaceManager{
+	return &Manager{
 		client:         client,
 		informer:       informer,
 		eventPublisher: eventPublisher,
@@ -35,7 +35,7 @@ func NewNamespaceManager(eventPublisher *messaging.GRPCClient, client *kubernete
 }
 
 // StartInformer starts the namespace informer
-func (nm *NamespaceManager) StartInformer() error {
+func (nm *Manager) StartInformer() error {
 	// Get the namespace informer
 	namespaceInformer := nm.informer.Core().V1().Namespaces().Informer()
 	namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -80,6 +80,6 @@ func (nm *NamespaceManager) StartInformer() error {
 }
 
 // Stop stops the namespace manager
-func (nm *NamespaceManager) Stop() {
+func (nm *Manager) Stop() {
 	close(nm.stopCh)
 }

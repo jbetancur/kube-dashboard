@@ -10,16 +10,22 @@ func SetupRoutes(app *fiber.App, clusterService *services.ClusterService, namesp
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.SendString("OK")
 	})
+
+	// API group with versioning
+	api := app.Group("/api/v1")
+
 	// Cluster routes
-	app.Get("/clusters", clusterService.ListClusters)
-	app.Get("/clusters/:clusterID", clusterService.GetCluster)
+	api.Get("/clusters", clusterService.ListClusters)
+	api.Get("/clusters/:clusterID", clusterService.GetCluster)
 
 	// Namespace routes
-	app.Get("/clusters/:clusterID/namespaces", namespaceService.ListNamespaces)
-	app.Get("/clusters/:clusterID/namespaces/:namespaceID", namespaceService.GetNamespace)
+	api.Get("/clusters/:clusterID/namespaces", namespaceService.ListNamespaces)
+	api.Get("/clusters/:clusterID/namespaces/:namespaceID", namespaceService.GetNamespace)
 
 	// Pod routes
-	app.Get("/clusters/:clusterID/namespaces/:namespaceID/pods", podService.ListPods)
-	app.Get("/clusters/:clusterID/namespaces/:namespaceID/pods/:podID", podService.GetPod)
-	app.Get("/clusters/:clusterID/namespaces/:namespaceID/:podName/:containerName?", websocket.New(podService.StreamPodLogs))
+	api.Get("/clusters/:clusterID/namespaces/:namespaceID/pods", podService.ListPods)
+	api.Get("/clusters/:clusterID/namespaces/:namespaceID/pods/:podID", podService.GetPod)
+
+	// Pod logs via WebSocket
+	api.Get("/clusters/:clusterID/namespaces/:namespaceID/pods/:podID/logs/:containerName?", websocket.New(podService.StreamPodLogs))
 }
