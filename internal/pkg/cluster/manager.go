@@ -19,6 +19,14 @@ type Manager struct {
 	ctx         context.Context
 }
 
+// ClusterInfo represents summary information about a cluster
+type ClusterInfo struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	ApiURL string `json:"apiUrl"`
+	Status string `json:"status"`
+}
+
 // NewManager creates a new ClusterManager
 func NewManager(ctx context.Context, logger *slog.Logger, provider providers.Provider) *Manager {
 	return &Manager{
@@ -86,7 +94,7 @@ func (m *Manager) GetCluster(clusterID string) (*Connection, error) {
 
 	// Create or update the connection
 	if cluster == nil {
-		cluster = NewConnection(clusterID, client)
+		cluster = NewConnection(clusterID, client, restConfig)
 		m.connections[clusterID] = cluster
 	} else {
 		cluster.Client = client
@@ -138,17 +146,26 @@ func (m *Manager) StopAllClusters() {
 	}
 }
 
-// ListClusters returns a list of all registered cluster IDs
-func (m *Manager) ListClusters() []string {
+// ListClusters returns information about all registered clusters
+func (m *Manager) ListClusters() []ClusterInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	clusterIDs := make([]string, 0, len(m.connections))
-	for clusterID := range m.connections {
-		clusterIDs = append(clusterIDs, clusterID)
+	clusters := make([]ClusterInfo, 0, len(m.connections))
+	for clusterID, conn := range m.connections {
+		apiUrl := ""
+		if conn.Config != nil {
+			apiUrl = conn.Config.Host
+		}
+
+		clusters = append(clusters, ClusterInfo{
+			ID:     clusterID,
+			Name:   clusterID, // Using ID as name unless you have custom names stored
+			ApiURL: apiUrl,
+		})
 	}
 
-	return clusterIDs
+	return clusters
 }
 
 // GetConnections returns a copy of all cluster connections

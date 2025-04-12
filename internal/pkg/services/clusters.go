@@ -22,18 +22,11 @@ func NewClusterService(manager *cluster.Manager, logger *slog.Logger) *ClusterSe
 func (s *ClusterService) ListClusters(c *fiber.Ctx) error {
 	s.Logger.Info("Listing clusters")
 
-	clusterIDs := s.manager.ListClusters()
+	// Get cluster info from the manager
+	clusters := s.manager.ListClusters()
 
-	// Format the response
-	response := make([]map[string]interface{}, len(clusterIDs))
-	for i, id := range clusterIDs {
-		response[i] = map[string]interface{}{
-			"id":   id,
-			"name": id, // Using ID as name for now
-		}
-	}
-
-	return c.JSON(response)
+	// The JSON response will now automatically include the ID, Name, and ApiURL fields
+	return c.JSON(clusters)
 }
 
 func (s *ClusterService) GetCluster(c *fiber.Ctx) error {
@@ -45,13 +38,13 @@ func (s *ClusterService) GetCluster(c *fiber.Ctx) error {
 	s.Logger.Info("Getting cluster", "clusterID", clusterID)
 
 	// Get the cluster
-	cluster, err := s.manager.GetCluster(clusterID)
+	conn, err := s.manager.GetCluster(clusterID)
 	if err != nil {
 		return s.NotFound(c, "Cluster", clusterID)
 	}
 
 	// Get cluster health status
-	healthy, err := cluster.GetHealthStatus()
+	healthy, err := conn.GetHealthStatus()
 	healthStatus := "unknown"
 	if err == nil {
 		if healthy {
@@ -61,11 +54,18 @@ func (s *ClusterService) GetCluster(c *fiber.Ctx) error {
 		}
 	}
 
-	// Format the response
-	response := map[string]interface{}{
-		"id":     clusterID,
-		"name":   clusterID, // Using ID as name for now
-		"status": healthStatus,
+	// Get API URL
+	apiUrl := ""
+	if conn.Client != nil && conn.Client.RESTClient() != nil && conn.Client.RESTClient().Get() != nil {
+		apiUrl = conn.Client.RESTClient().Get().URL().Host
+	}
+
+	// Format the response with the same structure as ListClusters
+	response := cluster.ClusterInfo{
+		ID:     clusterID,
+		Name:   clusterID, // Using ID as name for now
+		ApiURL: apiUrl,
+		Status: healthStatus, // Additional field for single cluster view
 	}
 
 	return c.JSON(response)

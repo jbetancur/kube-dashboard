@@ -12,6 +12,7 @@ import (
 	"github.com/jbetancur/dashboard/internal/pkg/messaging"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // ConnectionPayload represents the payload sent to the REST API
@@ -24,6 +25,7 @@ type ConnectionPayload struct {
 type Connection struct {
 	ID       string
 	Client   *kubernetes.Clientset
+	Config   *rest.Config // Make sure this field exists
 	Informer informers.SharedInformerFactory
 	StopCh   chan struct{}
 	AuthDone bool
@@ -31,10 +33,11 @@ type Connection struct {
 }
 
 // NewConnection creates a new cluster connection
-func NewConnection(id string, client *kubernetes.Clientset) *Connection {
+func NewConnection(id string, client *kubernetes.Clientset, config *rest.Config) *Connection {
 	return &Connection{
 		ID:       id,
 		Client:   client,
+		Config:   config, // Store the config
 		StopCh:   make(chan struct{}),
 		AuthDone: true,
 		Running:  false,
