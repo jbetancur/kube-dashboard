@@ -5,7 +5,7 @@ type Publisher interface {
 }
 
 type Subscriber interface {
-	AddHandler(topic string, handler func([]byte) error)
+	Subscribe(topic string, handler func([]byte) error)
 }
 
 type MessageQueue interface {

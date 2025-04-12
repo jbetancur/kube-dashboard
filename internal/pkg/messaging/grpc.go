@@ -94,7 +94,7 @@ func (s *GRPCServer) PublishEvent(ctx context.Context, req *EventRequest) (*Even
 	return &EventResponse{Success: true}, nil
 }
 
-func (s *GRPCServer) AddHandler(topic string, handler func([]byte) error) {
+func (s *GRPCServer) Subscribe(topic string, handler func([]byte) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -102,7 +102,6 @@ func (s *GRPCServer) AddHandler(topic string, handler func([]byte) error) {
 		s.handlers[topic] = make([]func([]byte) error, 0)
 	}
 	s.handlers[topic] = append(s.handlers[topic], handler)
-	// logger.Info("Added handler for topic", "topic", topic)
 }
 
 // Client methods

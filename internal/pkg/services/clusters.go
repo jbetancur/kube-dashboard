@@ -64,7 +64,7 @@ func (s *ClusterService) GetCluster(c *fiber.Ctx) error {
 	response := cluster.ClusterInfo{
 		ID:     clusterID,
 		Name:   clusterID, // Using ID as name for now
-		ApiURL: apiUrl,
+		APIURL: apiUrl,
 		Status: healthStatus, // Additional field for single cluster view
 	}
 

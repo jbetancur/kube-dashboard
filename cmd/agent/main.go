@@ -81,7 +81,7 @@ func main() {
 	var managers []*ClusterManagers
 
 	for _, kubeClient := range kubeClients {
-		manager, err := setupClusterManagers(grpcClient, kubeClient, logger)
+		manager, err := setupClusterManagers(grpcClient, kubeClient.Cluster, kubeClient, logger)
 		if err != nil {
 			logger.Error("Failed to set up managers for cluster",
 				"cluster", kubeClient.Cluster,
@@ -101,7 +101,7 @@ func main() {
 	logger.Info("Context done, shutting down")
 }
 
-func setupClusterManagers(grpcClient *messaging.GRPCClient, client *client.ClusterConfig, logger *slog.Logger) (*ClusterManagers, error) {
+func setupClusterManagers(grpcClient *messaging.GRPCClient, clusterID string, client *client.ClusterConfig, logger *slog.Logger) (*ClusterManagers, error) {
 	// Send cluster registration using the new package
 	err := cluster.PublishConnection(grpcClient, client.Cluster, client.Config.Host, logger)
 	if err != nil {
@@ -110,8 +110,8 @@ func setupClusterManagers(grpcClient *messaging.GRPCClient, client *client.Clust
 
 	return &ClusterManagers{
 		Cluster:          client.Cluster,
-		NamespaceManager: namespaces.NewManager(grpcClient, client.Client),
-		PodManager:       pods.NewManager(grpcClient, client.Client),
+		NamespaceManager: namespaces.NewManager(clusterID, grpcClient, client.Client, logger),
+		PodManager:       pods.NewManager(clusterID, grpcClient, client.Client, logger),
 	}, nil
 }
 

@@ -148,22 +148,20 @@ func (w *KubeConfigWatcher) loadKubeConfig() (*KubeConfig, error) {
 	w.logger.Info("Running outside cluster, loading kubeconfig file")
 
 	// Get kubeconfig path
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		home := os.Getenv("HOME")
-		kubeconfig = filepath.Join(home, ".kube", "config")
-	}
-
-	// Check if the kubeconfig file exists
-	info, err := os.Stat(kubeconfig)
+	kubeconfig, err := getKubeconfigPath()
 	if err != nil {
-		return nil, fmt.Errorf("kubeconfig file not accessible: %w", err)
+		return nil, fmt.Errorf("failed to get kubeconfig path: %w", err)
 	}
 
 	// Load the kubeconfig
 	rawConfig, err := clientcmd.LoadFromFile(kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	info, err := os.Stat(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat kubeconfig file: %w", err)
 	}
 
 	return &KubeConfig{
@@ -174,8 +172,8 @@ func (w *KubeConfigWatcher) loadKubeConfig() (*KubeConfig, error) {
 	}, nil
 }
 
-// GetKubeconfigPath gets the path to the current kubeconfig file
-func GetKubeconfigPath() (string, error) {
+// getKubeconfigPath gets the path to the current kubeconfig file
+func getKubeconfigPath() (string, error) {
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
 		home := os.Getenv("HOME")

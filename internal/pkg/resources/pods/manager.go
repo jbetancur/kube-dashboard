@@ -3,9 +3,11 @@ package pods
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jbetancur/dashboard/internal/pkg/messaging"
+	"github.com/jbetancur/dashboard/internal/pkg/resources"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
@@ -15,21 +17,30 @@ import (
 
 // Manager handles pod-related operations
 type Manager struct {
+	clusterID      string
 	client         *kubernetes.Clientset
 	informer       informers.SharedInformerFactory
 	eventPublisher *messaging.GRPCClient
+	logger         *slog.Logger
 	stopCh         chan struct{}
 }
 
 // NewManager creates a new Manager
-func NewManager(eventPublisher *messaging.GRPCClient, client *kubernetes.Clientset) *Manager {
+func NewManager(
+	clusterID string,
+	eventPublisher *messaging.GRPCClient,
+	client *kubernetes.Clientset,
+	logger *slog.Logger,
+) *Manager {
 	// Create a shared informer factory
 	informer := informers.NewSharedInformerFactory(client, time.Minute*5)
 
 	return &Manager{
+		clusterID:      clusterID,
 		client:         client,
 		informer:       informer,
 		eventPublisher: eventPublisher,
+		logger:         logger,
 		stopCh:         make(chan struct{}),
 	}
 }
@@ -41,27 +52,42 @@ func (pm *Manager) StartInformer() error {
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod := obj.(*v1.Pod)
-			podBytes, err := json.Marshal(pod)
+			payload := resources.ResourcePayload[v1.Pod]{
+				ClusterID: pm.clusterID,
+				Resource:  *pod,
+			}
+
+			podBytes, err := json.Marshal(payload)
 			if err != nil {
-				fmt.Printf("failed to serialize namespace: %v\n", err)
+				pm.logger.Error("failed to serialize pod", "error", err)
 				return
 			}
 			pm.eventPublisher.Publish("pod_added", podBytes)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			pod := newObj.(*v1.Pod)
-			podBytes, err := json.Marshal(pod)
+			payload := resources.ResourcePayload[v1.Pod]{
+				ClusterID: pm.clusterID,
+				Resource:  *pod,
+			}
+
+			podBytes, err := json.Marshal(payload)
 			if err != nil {
-				fmt.Printf("failed to serialize namespace: %v\n", err)
+				pm.logger.Error("failed to serialize pod", "error", err)
 				return
 			}
 			pm.eventPublisher.Publish("pod_updated", podBytes)
 		},
 		DeleteFunc: func(obj interface{}) {
 			pod := obj.(*v1.Pod)
-			podBytes, err := json.Marshal(pod)
+			payload := resources.ResourcePayload[v1.Pod]{
+				ClusterID: pm.clusterID,
+				Resource:  *pod,
+			}
+
+			podBytes, err := json.Marshal(payload)
 			if err != nil {
-				fmt.Printf("failed to serialize namespace: %v\n", err)
+				pm.logger.Error("failed to serialize pod", "error", err)
 				return
 			}
 			pm.eventPublisher.Publish("pod_deleted", podBytes)

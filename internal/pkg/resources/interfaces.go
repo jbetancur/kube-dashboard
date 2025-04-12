@@ -9,6 +9,11 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+type ResourcePayload[T any] struct {
+	ClusterID string `json:"cluster_id"`
+	Resource  T      `json:"resource"`
+}
+
 // ResourceManager is the base interface for all resource managers
 type ResourceManager interface {
 	// StartInformer starts the resource informer

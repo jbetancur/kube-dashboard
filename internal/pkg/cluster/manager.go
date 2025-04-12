@@ -23,7 +23,7 @@ type Manager struct {
 type ClusterInfo struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
-	ApiURL string `json:"apiUrl"`
+	APIURL string `json:"apiUrl"`
 	Status string `json:"status"`
 }
 
@@ -161,7 +161,7 @@ func (m *Manager) ListClusters() []ClusterInfo {
 		clusters = append(clusters, ClusterInfo{
 			ID:     clusterID,
 			Name:   clusterID, // Using ID as name unless you have custom names stored
-			ApiURL: apiUrl,
+			APIURL: apiUrl,
 		})
 	}
 

@@ -30,3 +30,4 @@ kubeconfig
 
 # build artifacts
 build/*
+*.log
