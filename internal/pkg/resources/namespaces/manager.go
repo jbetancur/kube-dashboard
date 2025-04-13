@@ -7,7 +7,7 @@ import (
 
 	"encoding/json"
 
-	"github.com/jbetancur/dashboard/internal/pkg/grpc"
+	messagingtypes "github.com/jbetancur/dashboard/internal/pkg/messaging/types"
 	"github.com/jbetancur/dashboard/internal/pkg/resources"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
@@ -20,7 +20,7 @@ type Manager struct {
 	clusterID      string
 	client         *kubernetes.Clientset
 	informer       informers.SharedInformerFactory
-	eventPublisher *grpc.GRPCClient
+	eventPublisher messagingtypes.Publisher
 	logger         *slog.Logger
 	stopCh         chan struct{}
 }
@@ -28,7 +28,7 @@ type Manager struct {
 // NewManager creates a new Manager
 func NewManager(
 	clusterID string,
-	eventPublisher *grpc.GRPCClient,
+	eventPublisher messagingtypes.Publisher,
 	client *kubernetes.Clientset,
 	logger *slog.Logger,
 ) *Manager {
