@@ -9,7 +9,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/jbetancur/dashboard/internal/pkg/grpc"
+	messagingtypes "github.com/jbetancur/dashboard/internal/pkg/messaging/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -63,7 +63,7 @@ func (c *Connection) Stop() {
 }
 
 // PublishConnection sends the cluster connection details via the message queue
-func PublishConnection(messageQueue *grpc.GRPCClient, clusterName, apiServerURL string, logger *slog.Logger) error {
+func PublishConnection(messageQueue messagingtypes.Publisher, clusterName, apiServerURL string, logger *slog.Logger) error {
 	payload := ConnectionPayload{
 		ClusterName: clusterName,
 		APIURL:      apiServerURL,

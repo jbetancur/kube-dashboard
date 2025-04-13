@@ -11,7 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"github.com/jbetancur/dashboard/internal/pkg/config"
-	"github.com/jbetancur/dashboard/internal/pkg/grpc"
+	"github.com/jbetancur/dashboard/internal/pkg/messaging"
 	"github.com/jbetancur/dashboard/internal/pkg/mongo"
 	"github.com/jbetancur/dashboard/internal/pkg/providers"
 	"github.com/jbetancur/dashboard/internal/pkg/resources"
@@ -65,28 +65,41 @@ func main() {
 	}
 	defer store.Close(ctx)
 
-	// Initialize the gRPC client
-	grpcClient := grpc.NewGRPCClient()
-	err = grpcClient.Connect(ctx, ":50050")
+	// Initialize the messaging client for bidirectional communication
+	messagingConfig := messaging.Config{
+		Type:          messaging.GRPCProvider,
+		ServerAddress: ":50053", // REST API's server address (for receiving)
+		ClientAddress: ":50052", // Agent's server address (for sending)
+	}
+
+	messagingClient, err := messaging.NewClient(messagingConfig, logger)
 	if err != nil {
-		logger.Error("Failed to connect to gRPC server", "error", err)
+		logger.Error("Failed to create messaging client", "error", err)
 		return
 	}
 
-	// Initialize the gRPC server to handle incoming events
-	grpcServer := grpc.NewGRPCServer()
-	err = grpcServer.Start(ctx, ":50052") // Use a different port
+	// Start the server to listen for agent messages
+	err = messagingClient.Start(ctx)
 	if err != nil {
-		logger.Error("Failed to start gRPC server", "error", err)
+		logger.Error("Failed to start messaging server", "error", err)
 		return
 	}
 
-	logger.Info("Connected to gRPC server on :50051")
-	// Create a cluster manager with context for lifecycle management
+	// Connect to the agent's server for potential publishing
+	err = messagingClient.Connect(ctx)
+	if err != nil {
+		logger.Error("Failed to connect messaging client", "error", err)
+		return
+	}
+	defer func() {
+		messagingClient.Stop()
+		messagingClient.Close()
+	}()
+
 	clusterManager := cluster.NewManager(ctx, logger, clusterProvider)
 
 	// Subscribe to cluster_registered events
-	grpcServer.Subscribe("cluster_registered", func(message []byte) error {
+	messagingClient.Subscribe("cluster_registered", func(message []byte) error {
 		var payload cluster.ConnectionPayload
 		err := json.Unmarshal(message, &payload)
 		if err != nil {
@@ -124,7 +137,7 @@ func main() {
 	})
 
 	// Add handlers for events
-	grpcServer.Subscribe("pod_added", func(message []byte) error {
+	messagingClient.Subscribe("pod_added", func(message []byte) error {
 		var payload resources.ResourcePayload[corev1.Pod]
 		if err := json.Unmarshal(message, &payload); err != nil {
 			logger.Error("Failed to unmarshal namespace event", "error", err)
@@ -141,7 +154,7 @@ func main() {
 		return nil
 	})
 
-	grpcServer.Subscribe("namespace_added", func(message []byte) error {
+	messagingClient.Subscribe("namespace_added", func(message []byte) error {
 		var payload resources.ResourcePayload[corev1.Namespace]
 
 		if err := json.Unmarshal(message, &payload); err != nil {
