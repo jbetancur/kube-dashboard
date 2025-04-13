@@ -1,26 +1,31 @@
 package services
 
 import (
+	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/resources/pods"
+	"github.com/jbetancur/dashboard/internal/pkg/storage"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type PodService struct {
 	BaseService
 	provider *pods.MultiClusterPodProvider
+	store    storage.Repository // Add MongoDB store
 }
 
-func NewPodService(provider *pods.MultiClusterPodProvider, logger *slog.Logger) *PodService {
+func NewPodService(provider *pods.MultiClusterPodProvider, store storage.Repository, logger *slog.Logger) *PodService {
 	return &PodService{
 		BaseService: BaseService{Logger: logger},
 		provider:    provider,
+		store:       store, // Store the MongoDB repository
 	}
 }
 
@@ -36,13 +41,24 @@ func (s *PodService) ListPods(c *fiber.Ctx) error {
 		return s.BadRequest(c, "missing namespace ID")
 	}
 
-	s.Logger.Info("Listing pods",
+	s.Logger.Info("Debug pods fom data store",
 		"clusterID", clusterID,
 		"namespaceID", namespaceID)
 
-	pods, err := s.provider.ListPods(c.Context(), clusterID, namespaceID)
-	if err != nil {
-		return s.Error(c, fiber.StatusInternalServerError, "failed to list pods: %v", err)
+	// Use MongoDB to list pods instead of the provider
+	var pods []corev1.Pod
+	if err := s.store.List(c.Context(), clusterID, namespaceID, "Pod", &pods); err != nil {
+		s.Logger.Error("Failed to list pods fom data store",
+			"clusterID", clusterID,
+			"namespaceID", namespaceID,
+			"error", err)
+
+		// // Fallback to direct API call if MongoDB fails
+		// directPods, directErr := s.provider.ListPods(c.Context(), clusterID, namespaceID)
+		// if directErr != nil {
+		// 	return s.Error(c, fiber.StatusInternalServerError, "failed to list pods: %v", err)
+		// }
+		// return c.JSON(directPods)
 	}
 
 	return c.JSON(pods)
@@ -65,49 +81,64 @@ func (s *PodService) GetPod(c *fiber.Ctx) error {
 		return s.BadRequest(c, "missing pod ID")
 	}
 
-	s.Logger.Info("Getting pod",
+	s.Logger.Debug("Getting pod fom data store",
 		"clusterID", clusterID,
 		"namespaceID", namespaceID,
 		"podID", podID)
 
-	pod, err := s.provider.GetPod(c.Context(), clusterID, namespaceID, podID)
-	if err != nil {
-		return s.Error(c, fiber.StatusInternalServerError, "failed to get pod: %v", err)
+	// Use MongoDB to get a pod instead of the provider
+	var pod corev1.Pod
+	if err := s.store.Get(c.Context(), clusterID, namespaceID, "Pod", podID, &pod); err != nil {
+		s.Logger.Error("Failed to get pod fom data store",
+			"clusterID", clusterID,
+			"namespaceID", namespaceID,
+			"podID", podID,
+			"error", err)
+
+		// // Fallback to direct API call if MongoDB fails
+		// directPod, directErr := s.provider.GetPod(c.Context(), clusterID, namespaceID, podID)
+		// if directErr != nil {
+		// 	return s.Error(c, fiber.StatusInternalServerError, "failed to get pod: %v", err)
+		// }
+		// if directPod == nil {
+		// 	return s.NotFound(c, "Pod", podID)
+		// }
+		// return c.JSON(directPod)
 	}
 
-	if pod == nil {
-		return s.NotFound(c, "Pod", podID)
-	}
-
-	return c.JSON(pod)
+	return c.JSON(&pod)
 }
 
+// StreamPodLogs still needs to use the direct API as we can't stream logs fom data store
 func (s *PodService) StreamPodLogs(c *websocket.Conn) {
-	// Create a context with timeout for initial log fetching
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Extract parameters
 	clusterID := c.Params("clusterID")
 	namespaceID := c.Params("namespaceID")
 	podID := c.Params("podID")
 	containerName := c.Params("containerName")
 
-	// Parameter validation
-	if clusterID == "" {
-		s.writeErrorAndClose(c, "missing cluster ID")
+	if clusterID == "" || namespaceID == "" || podID == "" {
+		s.sendLogError(c, "Missing required parameters")
 		return
 	}
 
-	if namespaceID == "" {
-		s.writeErrorAndClose(c, "missing namespace ID")
-		return
+	// Parse query params for log options
+	tailLines := 100 // Default
+	if tailParam := c.Query("tail"); tailParam != "" {
+		if val, err := strconv.Atoi(tailParam); err == nil && val > 0 {
+			tailLines = val
+		}
 	}
 
-	if podID == "" {
-		s.writeErrorAndClose(c, "missing pod ID")
+	// Use the direct provider for streaming logs
+	logStream, err := s.provider.GetPodLogs(ctx, clusterID, namespaceID, podID, containerName, int64(tailLines))
+	if err != nil {
+		s.sendLogError(c, fmt.Sprintf("Failed to get pod logs: %v", err))
 		return
 	}
+	defer logStream.Close()
 
 	s.Logger.Info("Streaming pod logs",
 		"clusterID", clusterID,
@@ -115,54 +146,24 @@ func (s *PodService) StreamPodLogs(c *websocket.Conn) {
 		"podID", podID,
 		"container", containerName)
 
-	// Default to 100 lines
-	tailLines := int64(100)
-
-	// Get the log stream using the provider (not s.GetPodLogs)
-	logStream, err := s.provider.GetPodLogs(ctx, clusterID, namespaceID, podID, containerName, tailLines)
-	if err != nil {
-		s.Logger.Error("Failed to get pod logs",
-			"error", err,
-			"clusterID", clusterID,
-			"namespaceID", namespaceID,
-			"podID", podID)
-		s.writeErrorAndClose(c, fmt.Sprintf("failed to get logs: %v", err))
-		return
-	}
-	defer logStream.Close()
-
-	// Stream logs to the WebSocket client
-	s.streamLogsToClient(c, logStream)
-}
-
-// Helper methods to improve code organization
-func (s *PodService) writeErrorAndClose(c *websocket.Conn, message string) {
-	s.Logger.Error(message)
-	c.WriteJSON(fiber.Map{"error": message})
-	c.Close()
-}
-
-func (s *PodService) streamLogsToClient(c *websocket.Conn, logStream io.ReadCloser) {
-	buffer := make([]byte, 4096) // Increased buffer size for efficiency
+	reader := bufio.NewReader(logStream)
 	for {
-		n, err := logStream.Read(buffer)
+		line, err := reader.ReadBytes('\n')
 		if err != nil {
-			if err != io.EOF {
-				s.Logger.Error("Error reading logs", "error", err)
-			} else {
-				s.Logger.Info("Log stream ended")
-			}
+			s.Logger.Error("Error reading log stream", "error", err)
 			break
 		}
 
-		if n > 0 {
-			err = c.WriteMessage(websocket.TextMessage, buffer[:n])
-			if err != nil {
-				s.Logger.Error("Error writing to websocket", "error", err)
-				break
-			}
+		if err := c.WriteMessage(websocket.TextMessage, line); err != nil {
+			s.Logger.Error("Error writing to websocket", "error", err)
+			break
 		}
 	}
+}
 
+// Helper method to send errors over the websocket
+func (s *PodService) sendLogError(c *websocket.Conn, message string) {
+	c.WriteJSON(map[string]string{"error": message})
+	time.Sleep(100 * time.Millisecond) // Give time for the message to be sent
 	c.Close()
 }

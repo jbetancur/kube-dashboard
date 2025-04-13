@@ -164,10 +164,10 @@ func main() {
 
 	// Create a multi-cluster namespace provider (no informers)
 	namespaceProvider := namespaces.NewMultiClusterNamespaceProvider(clusterManager)
-	namespaceService := services.NewNamespaceService(namespaceProvider, logger)
+	namespaceService := services.NewNamespaceService(namespaceProvider, store, logger)
 
 	podProvider := pods.NewMultiClusterPodProvider(clusterManager)
-	podService := services.NewPodService(podProvider, logger)
+	podService := services.NewPodService(podProvider, store, logger)
 
 	app := fiber.New()
 	router.SetupRoutes(app, clusterService, namespaceService, podService)

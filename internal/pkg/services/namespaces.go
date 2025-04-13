@@ -5,17 +5,21 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/resources/namespaces"
+	"github.com/jbetancur/dashboard/internal/pkg/storage"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type NamespaceService struct {
 	BaseService
 	provider *namespaces.MultiClusterNamespaceProvider
+	store    storage.Repository // Add MongoDB store
 }
 
-func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, logger *slog.Logger) *NamespaceService {
+func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, store storage.Repository, logger *slog.Logger) *NamespaceService {
 	return &NamespaceService{
 		BaseService: BaseService{Logger: logger},
 		provider:    provider,
+		store:       store, // Store the MongoDB repository
 	}
 }
 
@@ -25,11 +29,19 @@ func (s *NamespaceService) ListNamespaces(c *fiber.Ctx) error {
 		return s.BadRequest(c, "missing cluster ID")
 	}
 
-	s.Logger.Info("Listing namespaces", "clusterID", clusterID)
+	s.Logger.Debug("Listing namespaces fom data store", "clusterID", clusterID)
 
-	namespaces, err := s.provider.ListNamespaces(c.Context(), clusterID)
-	if err != nil {
-		return s.Error(c, fiber.StatusInternalServerError, "failed to list namespaces: %v", err)
+	// Use MongoDB to list namespaces instead of the provider
+	var namespaces []corev1.Namespace
+	if err := s.store.List(c.Context(), clusterID, "", "Namespace", &namespaces); err != nil {
+		s.Logger.Error("Failed to list namespaces fom data store", "clusterID", clusterID, "error", err)
+
+		// // Fallback to direct API call if MongoDB fails
+		// directNamespaces, directErr := s.provider.ListNamespaces(c.Context(), clusterID)
+		// if directErr != nil {
+		// 	return s.Error(c, fiber.StatusInternalServerError, "failed to list namespaces: %v", err)
+		// }
+		// return c.JSON(directNamespaces)
 	}
 
 	return c.JSON(namespaces)
@@ -47,16 +59,26 @@ func (s *NamespaceService) GetNamespace(c *fiber.Ctx) error {
 		return s.BadRequest(c, "missing namespace ID")
 	}
 
-	s.Logger.Info("Getting namespace", "clusterID", clusterID, "namespaceID", namespaceID)
+	s.Logger.Debug("Getting namespace fom data store", "clusterID", clusterID, "namespaceID", namespaceID)
 
-	namespace, err := s.provider.GetNamespace(c.Context(), clusterID, namespaceID)
-	if err != nil {
-		return s.Error(c, fiber.StatusInternalServerError, "failed to get namespace: %v", err)
+	// Use MongoDB to get a namespace instead of the provider
+	var namespace corev1.Namespace
+	if err := s.store.Get(c.Context(), clusterID, "", "Namespace", namespaceID, &namespace); err != nil {
+		s.Logger.Error("Failed to get namespace fom data store",
+			"clusterID", clusterID,
+			"namespaceID", namespaceID,
+			"error", err)
+
+		// // Fallback to direct API call if MongoDB fails
+		// directNamespace, directErr := s.provider.GetNamespace(c.Context(), clusterID, namespaceID)
+		// if directErr != nil {
+		// 	return s.Error(c, fiber.StatusInternalServerError, "failed to get namespace: %v", err)
+		// }
+		// if directNamespace == nil {
+		// 	return s.NotFound(c, "Namespace", namespaceID)
+		// }
+		// return c.JSON(directNamespace)
 	}
 
-	if namespace == nil {
-		return s.NotFound(c, "Namespace", namespaceID)
-	}
-
-	return c.JSON(namespace)
+	return c.JSON(&namespace)
 }
