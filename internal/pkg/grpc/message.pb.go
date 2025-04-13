@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v5.29.3
-// source: internal/pkg/messaging/message.proto
+// source: internal/pkg/grpc/message.proto
 
-package messaging
+package grpc
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -33,7 +33,7 @@ type EventRequest struct {
 
 func (x *EventRequest) Reset() {
 	*x = EventRequest{}
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[0]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +45,7 @@ func (x *EventRequest) String() string {
 func (*EventRequest) ProtoMessage() {}
 
 func (x *EventRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[0]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +58,7 @@ func (x *EventRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventRequest.ProtoReflect.Descriptor instead.
 func (*EventRequest) Descriptor() ([]byte, []int) {
-	return file_internal_pkg_messaging_message_proto_rawDescGZIP(), []int{0}
+	return file_internal_pkg_grpc_message_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *EventRequest) GetEventType() string {
@@ -99,7 +99,7 @@ type EventResponse struct {
 
 func (x *EventResponse) Reset() {
 	*x = EventResponse{}
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[1]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -111,7 +111,7 @@ func (x *EventResponse) String() string {
 func (*EventResponse) ProtoMessage() {}
 
 func (x *EventResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[1]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -124,7 +124,7 @@ func (x *EventResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventResponse.ProtoReflect.Descriptor instead.
 func (*EventResponse) Descriptor() ([]byte, []int) {
-	return file_internal_pkg_messaging_message_proto_rawDescGZIP(), []int{1}
+	return file_internal_pkg_grpc_message_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *EventResponse) GetSuccess() bool {
@@ -150,7 +150,7 @@ type SubscribeRequest struct {
 
 func (x *SubscribeRequest) Reset() {
 	*x = SubscribeRequest{}
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[2]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -162,7 +162,7 @@ func (x *SubscribeRequest) String() string {
 func (*SubscribeRequest) ProtoMessage() {}
 
 func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[2]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,7 +175,7 @@ func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_internal_pkg_messaging_message_proto_rawDescGZIP(), []int{2}
+	return file_internal_pkg_grpc_message_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *SubscribeRequest) GetTopic() string {
@@ -195,7 +195,7 @@ type SubscribeResponse struct {
 
 func (x *SubscribeResponse) Reset() {
 	*x = SubscribeResponse{}
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[3]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -207,7 +207,7 @@ func (x *SubscribeResponse) String() string {
 func (*SubscribeResponse) ProtoMessage() {}
 
 func (x *SubscribeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_pkg_messaging_message_proto_msgTypes[3]
+	mi := &file_internal_pkg_grpc_message_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -220,7 +220,7 @@ func (x *SubscribeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeResponse.ProtoReflect.Descriptor instead.
 func (*SubscribeResponse) Descriptor() ([]byte, []int) {
-	return file_internal_pkg_messaging_message_proto_rawDescGZIP(), []int{3}
+	return file_internal_pkg_grpc_message_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SubscribeResponse) GetSuccess() bool {
@@ -237,11 +237,11 @@ func (x *SubscribeResponse) GetMessage() string {
 	return ""
 }
 
-var File_internal_pkg_messaging_message_proto protoreflect.FileDescriptor
+var File_internal_pkg_grpc_message_proto protoreflect.FileDescriptor
 
-const file_internal_pkg_messaging_message_proto_rawDesc = "" +
+const file_internal_pkg_grpc_message_proto_rawDesc = "" +
 	"\n" +
-	"$internal/pkg/messaging/message.proto\x12\tmessaging\"z\n" +
+	"\x1finternal/pkg/grpc/message.proto\x12\x04grpc\"z\n" +
 	"\fEventRequest\x12\x1c\n" +
 	"\teventType\x18\x01 \x01(\tR\teventType\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1c\n" +
@@ -254,35 +254,35 @@ const file_internal_pkg_messaging_message_proto_rawDesc = "" +
 	"\x05topic\x18\x01 \x01(\tR\x05topic\"G\n" +
 	"\x11SubscribeResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\x9e\x01\n" +
-	"\fEventService\x12A\n" +
-	"\fPublishEvent\x12\x17.messaging.EventRequest\x1a\x18.messaging.EventResponse\x12K\n" +
-	"\x0eSubscribeEvent\x12\x1b.messaging.SubscribeRequest\x1a\x1c.messaging.SubscribeResponseB\"Z internal/pkg/messaging;messagingb\x06proto3"
+	"\amessage\x18\x02 \x01(\tR\amessage2\x8a\x01\n" +
+	"\fEventService\x127\n" +
+	"\fPublishEvent\x12\x12.grpc.EventRequest\x1a\x13.grpc.EventResponse\x12A\n" +
+	"\x0eSubscribeEvent\x12\x16.grpc.SubscribeRequest\x1a\x17.grpc.SubscribeResponseB\x18Z\x16internal/pkg/grpc;grpcb\x06proto3"
 
 var (
-	file_internal_pkg_messaging_message_proto_rawDescOnce sync.Once
-	file_internal_pkg_messaging_message_proto_rawDescData []byte
+	file_internal_pkg_grpc_message_proto_rawDescOnce sync.Once
+	file_internal_pkg_grpc_message_proto_rawDescData []byte
 )
 
-func file_internal_pkg_messaging_message_proto_rawDescGZIP() []byte {
-	file_internal_pkg_messaging_message_proto_rawDescOnce.Do(func() {
-		file_internal_pkg_messaging_message_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_internal_pkg_messaging_message_proto_rawDesc), len(file_internal_pkg_messaging_message_proto_rawDesc)))
+func file_internal_pkg_grpc_message_proto_rawDescGZIP() []byte {
+	file_internal_pkg_grpc_message_proto_rawDescOnce.Do(func() {
+		file_internal_pkg_grpc_message_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_internal_pkg_grpc_message_proto_rawDesc), len(file_internal_pkg_grpc_message_proto_rawDesc)))
 	})
-	return file_internal_pkg_messaging_message_proto_rawDescData
+	return file_internal_pkg_grpc_message_proto_rawDescData
 }
 
-var file_internal_pkg_messaging_message_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_internal_pkg_messaging_message_proto_goTypes = []any{
-	(*EventRequest)(nil),      // 0: messaging.EventRequest
-	(*EventResponse)(nil),     // 1: messaging.EventResponse
-	(*SubscribeRequest)(nil),  // 2: messaging.SubscribeRequest
-	(*SubscribeResponse)(nil), // 3: messaging.SubscribeResponse
+var file_internal_pkg_grpc_message_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_internal_pkg_grpc_message_proto_goTypes = []any{
+	(*EventRequest)(nil),      // 0: grpc.EventRequest
+	(*EventResponse)(nil),     // 1: grpc.EventResponse
+	(*SubscribeRequest)(nil),  // 2: grpc.SubscribeRequest
+	(*SubscribeResponse)(nil), // 3: grpc.SubscribeResponse
 }
-var file_internal_pkg_messaging_message_proto_depIdxs = []int32{
-	0, // 0: messaging.EventService.PublishEvent:input_type -> messaging.EventRequest
-	2, // 1: messaging.EventService.SubscribeEvent:input_type -> messaging.SubscribeRequest
-	1, // 2: messaging.EventService.PublishEvent:output_type -> messaging.EventResponse
-	3, // 3: messaging.EventService.SubscribeEvent:output_type -> messaging.SubscribeResponse
+var file_internal_pkg_grpc_message_proto_depIdxs = []int32{
+	0, // 0: grpc.EventService.PublishEvent:input_type -> grpc.EventRequest
+	2, // 1: grpc.EventService.SubscribeEvent:input_type -> grpc.SubscribeRequest
+	1, // 2: grpc.EventService.PublishEvent:output_type -> grpc.EventResponse
+	3, // 3: grpc.EventService.SubscribeEvent:output_type -> grpc.SubscribeResponse
 	2, // [2:4] is the sub-list for method output_type
 	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -290,26 +290,26 @@ var file_internal_pkg_messaging_message_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_internal_pkg_messaging_message_proto_init() }
-func file_internal_pkg_messaging_message_proto_init() {
-	if File_internal_pkg_messaging_message_proto != nil {
+func init() { file_internal_pkg_grpc_message_proto_init() }
+func file_internal_pkg_grpc_message_proto_init() {
+	if File_internal_pkg_grpc_message_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_pkg_messaging_message_proto_rawDesc), len(file_internal_pkg_messaging_message_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_pkg_grpc_message_proto_rawDesc), len(file_internal_pkg_grpc_message_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_internal_pkg_messaging_message_proto_goTypes,
-		DependencyIndexes: file_internal_pkg_messaging_message_proto_depIdxs,
-		MessageInfos:      file_internal_pkg_messaging_message_proto_msgTypes,
+		GoTypes:           file_internal_pkg_grpc_message_proto_goTypes,
+		DependencyIndexes: file_internal_pkg_grpc_message_proto_depIdxs,
+		MessageInfos:      file_internal_pkg_grpc_message_proto_msgTypes,
 	}.Build()
-	File_internal_pkg_messaging_message_proto = out.File
-	file_internal_pkg_messaging_message_proto_goTypes = nil
-	file_internal_pkg_messaging_message_proto_depIdxs = nil
+	File_internal_pkg_grpc_message_proto = out.File
+	file_internal_pkg_grpc_message_proto_goTypes = nil
+	file_internal_pkg_grpc_message_proto_depIdxs = nil
 }

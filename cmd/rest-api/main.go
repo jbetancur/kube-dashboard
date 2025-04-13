@@ -11,7 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"github.com/jbetancur/dashboard/internal/pkg/config"
-	"github.com/jbetancur/dashboard/internal/pkg/messaging"
+	"github.com/jbetancur/dashboard/internal/pkg/grpc"
 	"github.com/jbetancur/dashboard/internal/pkg/mongo"
 	"github.com/jbetancur/dashboard/internal/pkg/providers"
 	"github.com/jbetancur/dashboard/internal/pkg/resources"
@@ -66,7 +66,7 @@ func main() {
 	defer store.Close(ctx)
 
 	// Initialize the gRPC client
-	grpcClient := messaging.NewGRPCClient()
+	grpcClient := grpc.NewGRPCClient()
 	err = grpcClient.Connect(ctx, ":50050")
 	if err != nil {
 		logger.Error("Failed to connect to gRPC server", "error", err)
@@ -74,7 +74,7 @@ func main() {
 	}
 
 	// Initialize the gRPC server to handle incoming events
-	grpcServer := messaging.NewGRPCServer()
+	grpcServer := grpc.NewGRPCServer()
 	err = grpcServer.Start(ctx, ":50052") // Use a different port
 	if err != nil {
 		logger.Error("Failed to start gRPC server", "error", err)

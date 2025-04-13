@@ -63,5 +63,9 @@ run-tui:
 	@echo "Running TUI..."
 	$(GO_CMD) run ./cmd/tui
 
-
-# rotoc --go_out=. --go-grpc_out=. internal/pkg/messaging/message.proto
+# Generate gRPC code
+.PHONY: generate-grpc
+generate-grpc:
+	@echo "Generating gRPC code..."
+	protoc --go_out=. --go-grpc_out=. internal/pkg/grpc/message.proto
+	@echo "gRPC code generated successfully."

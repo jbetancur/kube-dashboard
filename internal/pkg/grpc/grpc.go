@@ -1,4 +1,4 @@
-package messaging
+package grpc
 
 import (
 	context "context"

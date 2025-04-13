@@ -12,7 +12,7 @@ import (
 
 	"github.com/jbetancur/dashboard/internal/pkg/client"
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
-	"github.com/jbetancur/dashboard/internal/pkg/messaging"
+	"github.com/jbetancur/dashboard/internal/pkg/grpc"
 	"github.com/jbetancur/dashboard/internal/pkg/resources/namespaces"
 	"github.com/jbetancur/dashboard/internal/pkg/resources/pods"
 )
@@ -56,7 +56,7 @@ func main() {
 	kubeClients := clientManager.GetClients()
 
 	// Initialize the gRPC server
-	grpcServer := messaging.NewGRPCServer()
+	grpcServer := grpc.NewGRPCServer()
 	err = grpcServer.Start(ctx, ":50050")
 	if err != nil {
 		logger.Error("Failed to start gRPC server", "error", err)
@@ -64,7 +64,7 @@ func main() {
 	}
 
 	// Initialize the gRPC client to publish events
-	grpcClient := messaging.NewGRPCClient()
+	grpcClient := grpc.NewGRPCClient()
 	err = grpcClient.Connect(ctx, ":50052") // Connect to REST API's server
 	if err != nil {
 		logger.Error("Failed to connect to REST API", "error", err)
@@ -101,7 +101,7 @@ func main() {
 	logger.Info("Context done, shutting down")
 }
 
-func setupClusterManagers(grpcClient *messaging.GRPCClient, clusterID string, client *client.ClusterConfig, logger *slog.Logger) (*ClusterManagers, error) {
+func setupClusterManagers(grpcClient *grpc.GRPCClient, clusterID string, client *client.ClusterConfig, logger *slog.Logger) (*ClusterManagers, error) {
 	// Send cluster registration using the new package
 	err := cluster.PublishConnection(grpcClient, client.Cluster, client.Config.Host, logger)
 	if err != nil {

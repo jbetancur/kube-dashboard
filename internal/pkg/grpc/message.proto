@@ -1,9 +1,9 @@
 syntax = "proto3";
 
-package messaging;
+package grpc;
 
 // Specify the Go package for the generated code
-option go_package = "internal/pkg/messaging;messaging";
+option go_package = "internal/pkg/grpc;grpc";
 
 service EventService {
   // Publish an event
