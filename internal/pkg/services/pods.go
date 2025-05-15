@@ -11,17 +11,17 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/assets/pods"
-	"github.com/jbetancur/dashboard/internal/pkg/storage"
+	"github.com/jbetancur/dashboard/internal/pkg/store"
 	corev1 "k8s.io/api/core/v1"
 )
 
 type PodService struct {
 	BaseService
 	provider *pods.MultiClusterPodProvider
-	store    storage.Repository // Add MongoDB store
+	store    store.Repository // Add MongoDB store
 }
 
-func NewPodService(provider *pods.MultiClusterPodProvider, store storage.Repository, logger *slog.Logger) *PodService {
+func NewPodService(provider *pods.MultiClusterPodProvider, store store.Repository, logger *slog.Logger) *PodService {
 	return &PodService{
 		BaseService: BaseService{Logger: logger},
 		provider:    provider,

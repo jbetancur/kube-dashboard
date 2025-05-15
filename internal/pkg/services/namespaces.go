@@ -5,17 +5,19 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/assets/namespaces"
-	"github.com/jbetancur/dashboard/internal/pkg/storage"
+
+	"github.com/jbetancur/dashboard/internal/pkg/store"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
 type NamespaceService struct {
 	BaseService
 	provider *namespaces.MultiClusterNamespaceProvider
-	store    storage.Repository // Add MongoDB store
+	store    store.Repository // Add MongoDB store
 }
 
-func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, store storage.Repository, logger *slog.Logger) *NamespaceService {
+func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, store store.Repository, logger *slog.Logger) *NamespaceService {
 	return &NamespaceService{
 		BaseService: BaseService{Logger: logger},
 		provider:    provider,

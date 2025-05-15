@@ -15,10 +15,10 @@ import (
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"github.com/jbetancur/dashboard/internal/pkg/config"
 	"github.com/jbetancur/dashboard/internal/pkg/messaging"
-	"github.com/jbetancur/dashboard/internal/pkg/mongo"
 	"github.com/jbetancur/dashboard/internal/pkg/providers"
 	"github.com/jbetancur/dashboard/internal/pkg/router"
 	"github.com/jbetancur/dashboard/internal/pkg/services"
+	"github.com/jbetancur/dashboard/internal/pkg/store"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -58,7 +58,7 @@ func main() {
 	// }
 
 	// In your main.go or initialization
-	store, err := mongo.NewStore(ctx, "mongodb://localhost:27017", "k8s-dashboard", logger)
+	store, err := store.NewStore(ctx, "mongodb://localhost:27017", "k8s-dashboard", logger)
 	if err != nil {
 		logger.Error("Failed to create MongoDB store", "error", err)
 		return

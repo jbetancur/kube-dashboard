@@ -1,4 +1,4 @@
-package mongo
+package store
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jbetancur/dashboard/internal/pkg/storage"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -35,7 +34,7 @@ type ResourceMetadata struct {
 }
 
 // NewStore creates a new MongoDB store
-func NewStore(ctx context.Context, uri, database string, logger *slog.Logger) (storage.Repository, error) {
+func NewStore(ctx context.Context, uri, database string, logger *slog.Logger) (Repository, error) {
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
