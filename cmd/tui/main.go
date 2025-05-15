@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jbetancur/dashboard/internal/pkg/client"
+	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
 )
@@ -146,14 +146,14 @@ type Model struct {
 	selectedPod       string
 	statusMessage     string
 	errorMessage      string
-	clientManager     *client.ClientManager
+	clientManager     *cluster.ClientManager
 	showHelp          bool
 	loading           bool
 }
 
 // Message types
 type clientLoadedMsg struct {
-	clientManager *client.ClientManager
+	clientManager *cluster.ClientManager
 }
 
 type clustersLoadedMsg struct {
@@ -259,7 +259,7 @@ func initializeClient() tea.Cmd {
 		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 		// Create client manager using your existing code
-		clientManager, err := client.NewClientManager(logger) // Pass the logger here instead of nil
+		clientManager, err := cluster.NewClientManager(logger) // Pass the logger here instead of nil
 		if err != nil {
 			return errorMsg{err: err}
 		}
@@ -268,7 +268,7 @@ func initializeClient() tea.Cmd {
 }
 
 // Commands for loading data
-func loadClusters(clientManager *client.ClientManager) tea.Cmd {
+func loadClusters(clientManager *cluster.ClientManager) tea.Cmd {
 	return func() tea.Msg {
 		kubeClients := clientManager.GetClients()
 		rows := make([]table.Row, 0, len(kubeClients))
@@ -285,7 +285,7 @@ func loadClusters(clientManager *client.ClientManager) tea.Cmd {
 	}
 }
 
-func loadNamespaces(clientManager *client.ClientManager, clusterID string) tea.Cmd {
+func loadNamespaces(clientManager *cluster.ClientManager, clusterID string) tea.Cmd {
 	return func() tea.Msg {
 		client, exists := clientManager.GetClient(clusterID)
 		if !exists {
@@ -310,7 +310,7 @@ func loadNamespaces(clientManager *client.ClientManager, clusterID string) tea.C
 	}
 }
 
-func loadPods(clientManager *client.ClientManager, clusterID, namespace string) tea.Cmd {
+func loadPods(clientManager *cluster.ClientManager, clusterID, namespace string) tea.Cmd {
 	return func() tea.Msg {
 		client, exists := clientManager.GetClient(clusterID)
 		if !exists {
@@ -357,7 +357,7 @@ func loadPods(clientManager *client.ClientManager, clusterID, namespace string) 
 	}
 }
 
-func loadPodDetails(clientManager *client.ClientManager, clusterID, namespace, podName string) tea.Cmd {
+func loadPodDetails(clientManager *cluster.ClientManager, clusterID, namespace, podName string) tea.Cmd {
 	return func() tea.Msg {
 		client, exists := clientManager.GetClient(clusterID)
 		if !exists {
