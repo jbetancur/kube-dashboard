@@ -48,7 +48,7 @@ func NewManager(
 func (nm *Manager) StartInformer() error {
 	// Get the namespace informer
 	namespaceInformer := nm.informer.Core().V1().Namespaces().Informer()
-	namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			ns := obj.(*v1.Namespace)
 
@@ -63,7 +63,9 @@ func (nm *Manager) StartInformer() error {
 				return
 			}
 
-			nm.eventPublisher.Publish("namespace_added", nsBytes)
+			if err := nm.eventPublisher.Publish("namespace_added", nsBytes); err != nil {
+				nm.logger.Error("failed to publish namespace_added event", "error", err)
+			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			ns := newObj.(*v1.Namespace)
@@ -72,14 +74,15 @@ func (nm *Manager) StartInformer() error {
 				ClusterID: nm.clusterID,
 				Resource:  *ns,
 			}
-
 			nsBytes, err := json.Marshal(payload)
 			if err != nil {
 				nm.logger.Error("failed to serialize namespace", "error", err)
 				return
 			}
 
-			nm.eventPublisher.Publish("namespace_updated", nsBytes)
+			if err := nm.eventPublisher.Publish("namespace_updated", nsBytes); err != nil {
+				nm.logger.Error("failed to publish namespace_updated event", "error", err)
+			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			ns := obj.(*v1.Namespace)
@@ -95,9 +98,13 @@ func (nm *Manager) StartInformer() error {
 				return
 			}
 
-			nm.eventPublisher.Publish("namespace_updated", nsBytes)
+			if err := nm.eventPublisher.Publish("namespace_deleted", nsBytes); err != nil {
+				nm.logger.Error("failed to publish namespace_deleted event", "error", err)
+			}
 		},
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to add event handler to namespace informer: %w", err)
+	}
 
 	// Start the informer
 	go namespaceInformer.Run(nm.stopCh)

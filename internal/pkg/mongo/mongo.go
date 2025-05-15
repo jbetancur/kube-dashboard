@@ -101,7 +101,7 @@ func (s *Store) Save(ctx context.Context, clusterID string, obj runtime.Object) 
 	}
 
 	// Generate a proper document ID
-	var id string = fmt.Sprintf("%s:%s:%s:%s", clusterID, meta.Namespace, meta.Kind, meta.Name)
+	var id = fmt.Sprintf("%s:%s:%s:%s", clusterID, meta.Namespace, meta.Kind, meta.Name)
 	if meta.Kind == "Namespace" {
 		id = fmt.Sprintf("%s:%s:%s", clusterID, meta.Kind, meta.Name)
 	}
@@ -231,7 +231,12 @@ func (s *Store) List(ctx context.Context, clusterID, namespace, kind string, res
 	if err != nil {
 		return fmt.Errorf("database query error: %w", err)
 	}
-	defer cursor.Close(ctx)
+
+	defer func() {
+		if err := cursor.Close(ctx); err != nil {
+			s.logger.Warn("Failed to close cursor", "error", err)
+		}
+	}()
 
 	// Get the slice value that results points to
 	resultsVal := reflect.ValueOf(results)

@@ -63,7 +63,11 @@ func main() {
 		logger.Error("Failed to create MongoDB store", "error", err)
 		return
 	}
-	defer store.Close(ctx)
+	defer func() {
+		if err := store.Close(ctx); err != nil {
+			logger.Error("Failed to close MongoDB store", "error", err)
+		}
+	}()
 
 	// Initialize the messaging client for bidirectional communication
 	messagingConfig := messaging.Config{
@@ -92,8 +96,12 @@ func main() {
 		return
 	}
 	defer func() {
-		messagingClient.Stop()
-		messagingClient.Close()
+		if err := messagingClient.Stop(); err != nil {
+			logger.Error("Failed to stop messaging client", "error", err)
+		}
+		if err := messagingClient.Close(); err != nil {
+			logger.Error("Failed to close messaging client", "error", err)
+		}
 	}()
 
 	clusterManager := cluster.NewManager(ctx, logger, clusterProvider)

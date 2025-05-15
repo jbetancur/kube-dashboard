@@ -69,3 +69,23 @@ generate-grpc:
 	@echo "Generating gRPC code..."
 	protoc --go_out=. --go-grpc_out=. internal/pkg/grpc/message.proto
 	@echo "gRPC code generated successfully."
+
+.PHONY: get-tools
+get-tools:
+	@echo "Installing tools..."
+	go get -tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+	@echo "Tools installed successfully."
+
+.PHONY: lint
+lint:
+	@echo "Running linter..."
+	go tool golangci-lint run ./...
+	@echo "Linting completed successfully."
+
+.PHONY: test
+
+.PHONY: fmt
+fmt:
+	@echo "Formatting..."
+	go tool golangci-lint fmt
+	@echo "Formatting completed successfully."

@@ -668,7 +668,11 @@ func main() {
 		fmt.Println("Could not create log file:", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Println("Error closing log file:", err)
+		}
+	}()
 	log.SetOutput(f)
 
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())

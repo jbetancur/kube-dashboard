@@ -28,7 +28,9 @@ func LoadConfig(filePath string) (*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close() // Explicitly ignoring the error
+	}()
 
 	var config AppConfig
 	decoder := yaml.NewDecoder(file)

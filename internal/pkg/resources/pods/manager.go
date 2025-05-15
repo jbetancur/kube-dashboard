@@ -49,7 +49,7 @@ func NewManager(
 func (pm *Manager) StartInformer() error {
 	// Get the pod informer
 	podInformer := pm.informer.Core().V1().Pods().Informer()
-	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod := obj.(*v1.Pod)
 			payload := resources.ResourcePayload[v1.Pod]{
@@ -62,7 +62,9 @@ func (pm *Manager) StartInformer() error {
 				pm.logger.Error("failed to serialize pod", "error", err)
 				return
 			}
-			pm.eventPublisher.Publish("pod_added", podBytes)
+			if err := pm.eventPublisher.Publish("pod_added", podBytes); err != nil {
+				pm.logger.Error("failed to publish pod addition", "error", err)
+			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			pod := newObj.(*v1.Pod)
@@ -70,13 +72,14 @@ func (pm *Manager) StartInformer() error {
 				ClusterID: pm.clusterID,
 				Resource:  *pod,
 			}
-
 			podBytes, err := json.Marshal(payload)
 			if err != nil {
 				pm.logger.Error("failed to serialize pod", "error", err)
 				return
 			}
-			pm.eventPublisher.Publish("pod_updated", podBytes)
+			if err := pm.eventPublisher.Publish("pod_updated", podBytes); err != nil {
+				pm.logger.Error("failed to publish pod update", "error", err)
+			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			pod := obj.(*v1.Pod)
@@ -84,15 +87,18 @@ func (pm *Manager) StartInformer() error {
 				ClusterID: pm.clusterID,
 				Resource:  *pod,
 			}
-
 			podBytes, err := json.Marshal(payload)
 			if err != nil {
 				pm.logger.Error("failed to serialize pod", "error", err)
 				return
 			}
-			pm.eventPublisher.Publish("pod_deleted", podBytes)
+			if err := pm.eventPublisher.Publish("pod_deleted", podBytes); err != nil {
+				pm.logger.Error("failed to publish pod deletion", "error", err)
+			}
 		},
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to add pod event handler: %w", err)
+	}
 
 	// Start the informer
 	go podInformer.Run(pm.stopCh)

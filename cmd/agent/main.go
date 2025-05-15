@@ -70,8 +70,12 @@ func main() {
 		return
 	}
 	defer func() {
-		messagingClient.Stop()
-		messagingClient.Close()
+		if err := messagingClient.Stop(); err != nil {
+			logger.Error("Failed to stop messaging client", "error", err)
+		}
+		if err := messagingClient.Close(); err != nil {
+			logger.Error("Failed to close messaging client", "error", err)
+		}
 	}()
 
 	// Initialize the client manager

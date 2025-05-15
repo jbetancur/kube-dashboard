@@ -116,7 +116,9 @@ func (c *GRPCClient) Connect(ctx context.Context, address string) error {
 
 	go func() {
 		<-ctx.Done()
-		c.Close()
+		if err := c.Close(); err != nil {
+			fmt.Printf("Error closing gRPC client: %v\n", err)
+		}
 	}()
 
 	return nil

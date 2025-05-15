@@ -138,7 +138,12 @@ func (s *PodService) StreamPodLogs(c *websocket.Conn) {
 		s.sendLogError(c, fmt.Sprintf("Failed to get pod logs: %v", err))
 		return
 	}
-	defer logStream.Close()
+
+	defer func() {
+		if err := logStream.Close(); err != nil {
+			s.Logger.Error("Failed to close log stream", "error", err)
+		}
+	}()
 
 	s.Logger.Info("Streaming pod logs",
 		"clusterID", clusterID,
@@ -163,7 +168,13 @@ func (s *PodService) StreamPodLogs(c *websocket.Conn) {
 
 // Helper method to send errors over the websocket
 func (s *PodService) sendLogError(c *websocket.Conn, message string) {
-	c.WriteJSON(map[string]string{"error": message})
+	if err := c.WriteJSON(map[string]string{"error": message}); err != nil {
+		s.Logger.Error("Failed to send error message over websocket", "error", err)
+	}
+
 	time.Sleep(100 * time.Millisecond) // Give time for the message to be sent
-	c.Close()
+
+	if err := c.Close(); err != nil {
+		s.Logger.Error("Failed to close websocket connection", "error", err)
+	}
 }
