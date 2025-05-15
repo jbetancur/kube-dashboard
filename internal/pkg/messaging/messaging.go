@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jbetancur/dashboard/internal/pkg/grpc"
+	"github.com/jbetancur/dashboard/internal/pkg/messaging/adapters/grpc"
 	messagingtypes "github.com/jbetancur/dashboard/internal/pkg/messaging/types"
 )
 
