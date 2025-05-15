@@ -16,7 +16,7 @@ type BaseService struct {
 func (s *BaseService) Error(c *fiber.Ctx, status int, format string, args ...interface{}) error {
 	message := format
 	if len(args) > 0 {
-		message = sprintf(format, args...)
+		message = fmt.Sprintf(format, args...)
 	}
 
 	if s.Logger != nil {
@@ -30,7 +30,7 @@ func (s *BaseService) Error(c *fiber.Ctx, status int, format string, args ...int
 
 // NotFound returns a standardized 404 response
 func (s *BaseService) NotFound(c *fiber.Ctx, resourceType string, id string) error {
-	message := sprintf("%s not found with id: %s", resourceType, id)
+	message := fmt.Sprintf("%s not found with id: %s", resourceType, id)
 	if s.Logger != nil {
 		s.Logger.Warn(message)
 	}
@@ -47,12 +47,4 @@ func (s *BaseService) BadRequest(c *fiber.Ctx, message string) error {
 	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 		"error": message,
 	})
-}
-
-// sprintf is a helper function to format strings
-func sprintf(format string, args ...interface{}) string {
-	if len(args) == 0 {
-		return format
-	}
-	return fmt.Sprintf(format, args...)
 }
