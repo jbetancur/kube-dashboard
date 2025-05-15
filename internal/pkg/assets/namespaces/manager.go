@@ -7,8 +7,8 @@ import (
 
 	"encoding/json"
 
+	resources "github.com/jbetancur/dashboard/internal/pkg/assets"
 	messagingtypes "github.com/jbetancur/dashboard/internal/pkg/messaging/types"
-	"github.com/jbetancur/dashboard/internal/pkg/resources"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"

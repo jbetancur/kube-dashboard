@@ -8,12 +8,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jbetancur/dashboard/internal/pkg/assets/namespaces"
+	"github.com/jbetancur/dashboard/internal/pkg/assets/pods"
 	"github.com/jbetancur/dashboard/internal/pkg/client"
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"github.com/jbetancur/dashboard/internal/pkg/messaging"
 	messagetypes "github.com/jbetancur/dashboard/internal/pkg/messaging/types"
-	"github.com/jbetancur/dashboard/internal/pkg/resources/namespaces"
-	"github.com/jbetancur/dashboard/internal/pkg/resources/pods"
 )
 
 type ClusterManagers struct {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
-	"github.com/jbetancur/dashboard/internal/pkg/resources/pods"
+	"github.com/jbetancur/dashboard/internal/pkg/assets/pods"
 	"github.com/jbetancur/dashboard/internal/pkg/storage"
 	corev1 "k8s.io/api/core/v1"
 )

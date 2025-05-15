@@ -4,7 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/jbetancur/dashboard/internal/pkg/resources/namespaces"
+	"github.com/jbetancur/dashboard/internal/pkg/assets/namespaces"
 	"github.com/jbetancur/dashboard/internal/pkg/storage"
 	corev1 "k8s.io/api/core/v1"
 )
