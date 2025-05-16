@@ -145,22 +145,19 @@ func handleClusterRegistration(
 		return err
 	}
 
-	// // Create a cluster object to store in the database
-	// clusterObj := struct {
-	// 	Kind   string `bson:"kind"`
-	// 	Name   string `bson:"name"`
-	// 	APIURL string `bson:"apiUrl"`
-	// }{
-	// 	Kind:   "Cluster",
-	// 	Name:   payload.ClusterName,
-	// 	APIURL: payload.APIURL,
-	// }
+	// var payload assets.ResourcePayload[corev1.ClusterInfo]
+	// Create a ClusterInfo object to store in the database
+	clusterInfo := cluster.ClusterInfo{
+		Kind:   "Cluster",
+		Name:   payload.ClusterName,
+		APIURL: payload.APIURL,
+	}
 
-	// // Save the cluster to the database
-	// if err := store.Save(ctx, "", &clusterObj); err != nil {
-	// 	logger.Error("Failed to store cluster", "error", err)
-	// 	return err
-	// }
+	// Save the cluster to the database
+	if err := store.SaveCluster(ctx, &clusterInfo); err != nil {
+		logger.Error("Failed to store cluster", "error", err)
+		return err
+	}
 
 	logger.Info("Registered cluster from event",
 		"name", payload.ClusterName,

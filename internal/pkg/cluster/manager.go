@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/jbetancur/dashboard/internal/pkg/providers"
 	"k8s.io/client-go/kubernetes"
@@ -21,10 +22,13 @@ type Manager struct {
 
 // ClusterInfo represents summary information about a cluster
 type ClusterInfo struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	APIURL string `json:"apiUrl"`
-	Status string `json:"status"`
+	ID        string    `json:"id" bson:"_id,omitempty"`
+	Kind      string    `json:"kind" bson:"kind"`
+	Name      string    `json:"name" bson:"name"`
+	APIURL    string    `json:"apiUrl" bson:"api_url"`
+	Status    string    `json:"status" bson:"status"`
+	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
+	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
 }
 
 // NewManager creates a new ClusterManager

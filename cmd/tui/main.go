@@ -288,7 +288,7 @@ func initializeClients() tea.Cmd {
 
 		// Create database client
 		ctx := context.Background()
-		dbClient, err := store.NewStore(ctx, "mongodb://localhost:27017", "k8s-dashboard", logger)
+		dbClient, err := store.NewStore(ctx, "mongodb://localhost:27017", "k8s-starship", logger)
 		if err != nil {
 			return errorMsg{err: fmt.Errorf("failed to initialize database client: %w", err)}
 		}
@@ -307,11 +307,8 @@ func loadClusters(dbClient store.Repository) tea.Cmd {
 		defer cancel()
 
 		// Get clusters from database
-		var clusters []struct {
-			Name   string `bson:"name"`
-			APIURL string `bson:"apiUrl"`
-		}
-		err := dbClient.List(ctx, "", "", "Cluster", &clusters)
+		var clusters []cluster.ClusterInfo
+		err := dbClient.ListClusters(ctx, &clusters)
 		if err != nil {
 			return errorMsg{err: fmt.Errorf("failed to list clusters from database: %w", err)}
 		}

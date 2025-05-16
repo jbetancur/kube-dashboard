@@ -94,7 +94,7 @@ func main() {
 	config.SetupSubscriptions(ctx, messagingClient, store, clusterManager, logger)
 
 	// Initialize services
-	clusterService := services.NewClusterService(clusterManager, logger)
+	clusterService := services.NewClusterService(clusterManager, store, logger)
 
 	// Create a multi-cluster namespace provider (no informers)
 	namespaceProvider := namespaces.NewMultiClusterNamespaceProvider(clusterManager)

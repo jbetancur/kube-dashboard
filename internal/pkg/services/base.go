@@ -48,3 +48,13 @@ func (s *BaseService) BadRequest(c *fiber.Ctx, message string) error {
 		"error": message,
 	})
 }
+
+// InternalServerError returns a standardized 500 response
+func (s *BaseService) InternalServerError(c *fiber.Ctx, message string, err error) error {
+	if s.Logger != nil {
+		s.Logger.Error("Internal server error: "+message, "error", err)
+	}
+	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+		"error": message,
+	})
+}

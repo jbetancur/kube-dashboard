@@ -5,17 +5,20 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
+	"github.com/jbetancur/dashboard/internal/pkg/store"
 )
 
 type ClusterService struct {
 	BaseService
 	manager *cluster.Manager
+	store   store.Repository
 }
 
-func NewClusterService(manager *cluster.Manager, logger *slog.Logger) *ClusterService {
+func NewClusterService(manager *cluster.Manager, store store.Repository, logger *slog.Logger) *ClusterService {
 	return &ClusterService{
 		BaseService: BaseService{Logger: logger},
 		manager:     manager,
+		store:       store,
 	}
 }
 
@@ -23,9 +26,12 @@ func (s *ClusterService) ListClusters(c *fiber.Ctx) error {
 	s.Logger.Info("Listing clusters")
 
 	// Get cluster info from the manager
-	clusters := s.manager.ListClusters()
+	var clusters []cluster.ClusterInfo
+	err := s.store.ListClusters(c.Context(), &clusters)
+	if err != nil {
+		return s.InternalServerError(c, "Failed to list clusters", err)
+	}
 
-	// The JSON response will now automatically include the ID, Name, and ApiURL fields
 	return c.JSON(clusters)
 }
 

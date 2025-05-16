@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -18,9 +19,10 @@ import (
 
 // Store is a simplified MongoDB client for storing Kubernetes resources
 type Store struct {
-	client     *mongo.Client
-	collection *mongo.Collection
-	logger     *slog.Logger
+	client            *mongo.Client
+	clusterCollection *mongo.Collection
+	assetCollection   *mongo.Collection
+	logger            *slog.Logger
 }
 
 // ResourceMetadata contains common Kubernetes resource metadata
@@ -45,18 +47,19 @@ func NewStore(ctx context.Context, uri, database string, logger *slog.Logger) (R
 		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
 
-	// Create the collection
-	collection := client.Database(database).Collection("assets")
+	// Create the collections
+	clusterCollection := client.Database(database).Collection("clusters")
+	assetCollection := client.Database(database).Collection("assets")
 
-	// First, drop any existing problematic indexes to avoid conflicts
-	_, err = collection.Indexes().DropAll(ctx)
+	// Drop any existing problematic indexes to avoid conflicts
+	_, err = assetCollection.Indexes().DropAll(ctx)
 	if err != nil {
-		logger.Warn("Failed to drop existing indexes (this is usually fine for first run)", "error", err)
+		logger.Warn("Failed to drop existing asset indexes (this is usually fine for first run)", "error", err)
 		// Continue anyway - this may fail on first run when no indexes exist
 	}
 
 	// Create indexes for efficient querying - without uniqueness on UID
-	_, err = collection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+	_, err = assetCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{
 			Keys: bson.D{
 				{Key: "cluster_id", Value: 1},
@@ -76,9 +79,10 @@ func NewStore(ctx context.Context, uri, database string, logger *slog.Logger) (R
 	}
 
 	return &Store{
-		client:     client,
-		collection: collection,
-		logger:     logger,
+		client:            client,
+		clusterCollection: clusterCollection,
+		assetCollection:   assetCollection,
+		logger:            logger,
 	}, nil
 }
 
@@ -160,7 +164,7 @@ func (s *Store) Save(ctx context.Context, clusterID string, obj runtime.Object) 
 
 	// Upsert the document (create if not exists, update if exists)
 	opts := options.Update().SetUpsert(true)
-	_, err = s.collection.UpdateOne(
+	_, err = s.assetCollection.UpdateOne(
 		ctx,
 		bson.M{"_id": id},
 		bson.M{
@@ -177,6 +181,39 @@ func (s *Store) Save(ctx context.Context, clusterID string, obj runtime.Object) 
 	return nil
 }
 
+// SaveCluster stores a cluster in MongoDB
+func (s *Store) SaveCluster(ctx context.Context, clusterInfo *cluster.ClusterInfo) error {
+	// Set the ID if it's not already set
+	if clusterInfo.ID == "" {
+		clusterInfo.ID = fmt.Sprintf("cluster:%s", clusterInfo.Name)
+	}
+
+	// Update timestamps
+	clusterInfo.UpdatedAt = time.Now()
+
+	// Use the struct directly with upsert
+	opts := options.Update().SetUpsert(true)
+	_, err := s.clusterCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": clusterInfo.ID},
+		bson.M{
+			"$set":         clusterInfo,
+			"$setOnInsert": bson.M{"created_at": time.Now()},
+		},
+		opts,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to save cluster: %w", err)
+	}
+
+	s.logger.Info("Stored cluster in database",
+		"id", clusterInfo.ID,
+		"name", clusterInfo.Name,
+		"api_url", clusterInfo.APIURL)
+	return nil
+}
+
 // Get retrieves a Kubernetes resource by its identifying information
 func (s *Store) Get(ctx context.Context, clusterID, namespace, kind, name string, result interface{}) error {
 	// Generate the correct ID based on resource type
@@ -189,7 +226,7 @@ func (s *Store) Get(ctx context.Context, clusterID, namespace, kind, name string
 
 	// Find the document by ID
 	var doc bson.M
-	err := s.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
+	err := s.assetCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return fmt.Errorf("resource not found: %s", id)
@@ -226,7 +263,7 @@ func (s *Store) List(ctx context.Context, clusterID, namespace, kind string, res
 	}
 
 	// Find matching documents
-	cursor, err := s.collection.Find(ctx, filter)
+	cursor, err := s.assetCollection.Find(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("database query error: %w", err)
 	}
@@ -286,6 +323,80 @@ func (s *Store) List(ctx context.Context, clusterID, namespace, kind string, res
 	return nil
 }
 
+// GetCluster retrieves a cluster by name
+func (s *Store) GetCluster(ctx context.Context, name string, result *cluster.ClusterInfo) error {
+	// Generate cluster ID
+	id := fmt.Sprintf("cluster:%s", name)
+
+	// Find the document by ID
+	var doc bson.M
+	err := s.clusterCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("cluster not found: %s", name)
+		}
+		return fmt.Errorf("database error: %w", err)
+	}
+
+	// Convert document to cluster info
+	clusterBytes, err := bson.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("failed to marshal cluster data: %w", err)
+	}
+
+	// Unmarshal into the provided result
+	return bson.Unmarshal(clusterBytes, result)
+}
+
+// ListClusters lists all clusters
+func (s *Store) ListClusters(ctx context.Context, results *[]cluster.ClusterInfo) error {
+	// Find all cluster documents - no filter needed since this collection only contains clusters
+	cursor, err := s.clusterCollection.Find(ctx, bson.M{})
+	if err != nil {
+		return fmt.Errorf("database query error: %w", err)
+	}
+
+	defer func() {
+		if err := cursor.Close(ctx); err != nil {
+			s.logger.Warn("Failed to close cursor", "error", err)
+		}
+	}()
+
+	// Get all documents
+	var docs []bson.M
+	if err := cursor.All(ctx, &docs); err != nil {
+		return fmt.Errorf("failed to read cursor: %w", err)
+	}
+
+	s.logger.Debug("Found cluster documents", "count", len(docs))
+
+	// Create a slice to hold the results
+	clusters := make([]cluster.ClusterInfo, 0, len(docs))
+
+	// Convert each document to a ClusterInfo
+	for _, doc := range docs {
+		var cluster cluster.ClusterInfo
+
+		// Marshal and unmarshal to convert
+		clusterBytes, err := bson.Marshal(doc)
+		if err != nil {
+			s.logger.Error("Failed to marshal cluster", "error", err, "doc", doc)
+			continue
+		}
+
+		if err := bson.Unmarshal(clusterBytes, &cluster); err != nil {
+			s.logger.Error("Failed to unmarshal cluster", "error", err)
+			continue
+		}
+
+		clusters = append(clusters, cluster)
+	}
+
+	// Set the results
+	*results = clusters
+	return nil
+}
+
 // Delete removes a resource
 func (s *Store) Delete(ctx context.Context, clusterID, namespace, kind, name string) error {
 	// Generate the correct ID
@@ -296,7 +407,7 @@ func (s *Store) Delete(ctx context.Context, clusterID, namespace, kind, name str
 		id = fmt.Sprintf("%s:%s:%s:%s", clusterID, namespace, kind, name)
 	}
 
-	_, err := s.collection.DeleteOne(ctx, bson.M{"_id": id})
+	_, err := s.assetCollection.DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {
 		return fmt.Errorf("failed to delete resource: %w", err)
 	}
@@ -305,7 +416,7 @@ func (s *Store) Delete(ctx context.Context, clusterID, namespace, kind, name str
 
 // DeleteByFilter removes resources matching a filter
 func (s *Store) DeleteByFilter(ctx context.Context, filter map[string]interface{}) error {
-	_, err := s.collection.DeleteMany(ctx, filter)
+	_, err := s.assetCollection.DeleteMany(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("failed to delete resources: %w", err)
 	}
