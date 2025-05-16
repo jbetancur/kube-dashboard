@@ -46,7 +46,7 @@ func NewStore(ctx context.Context, uri, database string, logger *slog.Logger) (R
 	}
 
 	// Create the collection
-	collection := client.Database(database).Collection("resources")
+	collection := client.Database(database).Collection("assets")
 
 	// First, drop any existing problematic indexes to avoid conflicts
 	_, err = collection.Indexes().DropAll(ctx)

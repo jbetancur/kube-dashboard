@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"os"
@@ -15,6 +17,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
+	"github.com/jbetancur/dashboard/internal/pkg/store"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
 )
@@ -51,6 +55,7 @@ const (
 	NamespaceView
 	PodView
 	DetailView
+	LogsView // View for pod logs
 )
 
 // KeyMap defines the keybindings for the application
@@ -137,6 +142,7 @@ type Model struct {
 	namespaceTable    table.Model
 	podTable          table.Model
 	detailView        viewport.Model
+	logsView          viewport.Model
 	help              help.Model
 	keys              KeyMap
 	width             int
@@ -144,16 +150,20 @@ type Model struct {
 	selectedCluster   string
 	selectedNamespace string
 	selectedPod       string
+	selectedContainer string
 	statusMessage     string
 	errorMessage      string
 	clientManager     *cluster.ClientManager
+	dbClient          store.Repository // Database client
 	showHelp          bool
 	loading           bool
+	logLines          int64
 }
 
 // Message types
-type clientLoadedMsg struct {
+type clientsLoadedMsg struct {
 	clientManager *cluster.ClientManager
+	dbClient      store.Repository
 }
 
 type clustersLoadedMsg struct {
@@ -169,6 +179,10 @@ type podsLoadedMsg struct {
 }
 
 type podDetailsLoadedMsg struct {
+	content string
+}
+
+type podLogsLoadedMsg struct {
 	content string
 }
 
@@ -223,23 +237,31 @@ func initialModel() Model {
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62"))
 
+	logsView := viewport.New(80, 20)
+	logsView.Style = lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62"))
+
 	return Model{
-		currentView:    ClusterView,
-		clusterTable:   clusterTable,
-		namespaceTable: namespaceTable,
-		podTable:       podTable,
-		detailView:     detailView,
-		help:           help.New(),
-		keys:           keys,
-		statusMessage:  "Loading clusters...",
-		loading:        true,
-		showHelp:       false,
+		currentView:       ClusterView,
+		clusterTable:      clusterTable,
+		namespaceTable:    namespaceTable,
+		podTable:          podTable,
+		detailView:        detailView,
+		logsView:          logsView,
+		help:              help.New(),
+		keys:              keys,
+		statusMessage:     "Loading clients...",
+		loading:           true,
+		showHelp:          false,
+		logLines:          100, // Default to 100 lines
+		selectedContainer: "",
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		initializeClient(),
+		initializeClients(),
 		tea.EnterAltScreen,
 	)
 }
@@ -252,56 +274,72 @@ func formatAge(timestamp metav1.Time) string {
 	return duration.HumanDuration(time.Since(timestamp.Time))
 }
 
-// initializeClient uses your existing client manager
-func initializeClient() tea.Cmd {
+// initializeClients initializes both Kubernetes and database clients
+func initializeClients() tea.Cmd {
 	return func() tea.Msg {
-		// Create a logger that writes to our log file
+		// Create a logger
 		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-		// Create client manager using your existing code
-		clientManager, err := cluster.NewClientManager(logger) // Pass the logger here instead of nil
+		// Create Kubernetes client manager
+		clientManager, err := cluster.NewClientManager(logger)
 		if err != nil {
-			return errorMsg{err: err}
+			return errorMsg{err: fmt.Errorf("failed to initialize Kubernetes client: %w", err)}
 		}
-		return clientLoadedMsg{clientManager: clientManager}
+
+		// Create database client
+		ctx := context.Background()
+		dbClient, err := store.NewStore(ctx, "mongodb://localhost:27017", "k8s-dashboard", logger)
+		if err != nil {
+			return errorMsg{err: fmt.Errorf("failed to initialize database client: %w", err)}
+		}
+
+		return clientsLoadedMsg{
+			clientManager: clientManager,
+			dbClient:      dbClient,
+		}
 	}
 }
 
-// Commands for loading data
-func loadClusters(clientManager *cluster.ClientManager) tea.Cmd {
+// Load clusters from database
+func loadClusters(dbClient store.Repository) tea.Cmd {
 	return func() tea.Msg {
-		kubeClients := clientManager.GetClients()
-		rows := make([]table.Row, 0, len(kubeClients))
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-		for _, c := range kubeClients {
-			apiURL := ""
-			if c.Config != nil {
-				apiURL = c.Config.Host
-			}
-			rows = append(rows, table.Row{c.Cluster, apiURL})
+		// Get clusters from database
+		var clusters []struct {
+			Name   string `bson:"name"`
+			APIURL string `bson:"apiUrl"`
+		}
+		err := dbClient.List(ctx, "", "", "Cluster", &clusters)
+		if err != nil {
+			return errorMsg{err: fmt.Errorf("failed to list clusters from database: %w", err)}
+		}
+
+		rows := make([]table.Row, 0, len(clusters))
+		for _, c := range clusters {
+			rows = append(rows, table.Row{c.Name, c.APIURL})
 		}
 
 		return clustersLoadedMsg{rows: rows}
 	}
 }
 
-func loadNamespaces(clientManager *cluster.ClientManager, clusterID string) tea.Cmd {
+// Load namespaces from database
+func loadNamespaces(dbClient store.Repository, clusterID string) tea.Cmd {
 	return func() tea.Msg {
-		client, exists := clientManager.GetClient(clusterID)
-		if !exists {
-			return errorMsg{err: fmt.Errorf("cluster %s not found", clusterID)}
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		namespaces, err := client.Client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+		// Get namespaces from database
+		var namespaces []corev1.Namespace
+		err := dbClient.List(ctx, clusterID, "", "Namespace", &namespaces)
 		if err != nil {
-			return errorMsg{err: fmt.Errorf("failed to list namespaces: %w", err)}
+			return errorMsg{err: fmt.Errorf("failed to list namespaces from database: %w", err)}
 		}
 
-		rows := make([]table.Row, 0, len(namespaces.Items))
-		for _, ns := range namespaces.Items {
+		rows := make([]table.Row, 0, len(namespaces))
+		for _, ns := range namespaces {
 			age := formatAge(ns.CreationTimestamp)
 			rows = append(rows, table.Row{ns.Name, string(ns.Status.Phase), age})
 		}
@@ -310,23 +348,21 @@ func loadNamespaces(clientManager *cluster.ClientManager, clusterID string) tea.
 	}
 }
 
-func loadPods(clientManager *cluster.ClientManager, clusterID, namespace string) tea.Cmd {
+// Load pods from database
+func loadPods(dbClient store.Repository, clusterID, namespace string) tea.Cmd {
 	return func() tea.Msg {
-		client, exists := clientManager.GetClient(clusterID)
-		if !exists {
-			return errorMsg{err: fmt.Errorf("cluster %s not found", clusterID)}
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		pods, err := client.Client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		// Get pods from database
+		var pods []corev1.Pod
+		err := dbClient.List(ctx, clusterID, namespace, "Pod", &pods)
 		if err != nil {
-			return errorMsg{err: fmt.Errorf("failed to list pods: %w", err)}
+			return errorMsg{err: fmt.Errorf("failed to list pods from database: %w", err)}
 		}
 
-		rows := make([]table.Row, 0, len(pods.Items))
-		for _, pod := range pods.Items {
+		rows := make([]table.Row, 0, len(pods))
+		for _, pod := range pods {
 			// Calculate readiness
 			ready := 0
 			for _, containerStatus := range pod.Status.ContainerStatuses {
@@ -357,19 +393,17 @@ func loadPods(clientManager *cluster.ClientManager, clusterID, namespace string)
 	}
 }
 
-func loadPodDetails(clientManager *cluster.ClientManager, clusterID, namespace, podName string) tea.Cmd {
+// Load pod details from database
+func loadPodDetails(dbClient store.Repository, clusterID, namespace, podName string) tea.Cmd {
 	return func() tea.Msg {
-		client, exists := clientManager.GetClient(clusterID)
-		if !exists {
-			return errorMsg{err: fmt.Errorf("cluster %s not found", clusterID)}
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		pod, err := client.Client.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		// Get pod from database
+		var pod corev1.Pod
+		err := dbClient.Get(ctx, clusterID, namespace, "Pod", podName, &pod)
 		if err != nil {
-			return errorMsg{err: fmt.Errorf("failed to get pod: %w", err)}
+			return errorMsg{err: fmt.Errorf("failed to get pod from database: %w", err)}
 		}
 
 		// Format detailed info
@@ -429,6 +463,68 @@ func loadPodDetails(clientManager *cluster.ClientManager, clusterID, namespace, 
 	}
 }
 
+// Keep pod logs fetching directly from K8s API
+func loadPodLogs(clientManager *cluster.ClientManager, clusterID, namespace, podName, containerName string, lines int64) tea.Cmd {
+	return func() tea.Msg {
+		client, exists := clientManager.GetClient(clusterID)
+		if !exists {
+			return errorMsg{err: fmt.Errorf("cluster %s not found", clusterID)}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Set up logs options
+		options := &corev1.PodLogOptions{
+			Container: containerName,
+		}
+
+		if lines > 0 {
+			options.TailLines = &lines
+		}
+
+		// Get the logs
+		logsReq := client.Client.CoreV1().Pods(namespace).GetLogs(podName, options)
+		logsStream, err := logsReq.Stream(ctx)
+		if err != nil {
+			return errorMsg{err: fmt.Errorf("failed to get pod logs: %w", err)}
+		}
+		defer logsStream.Close()
+
+		// Read the logs
+		buf := new(bytes.Buffer)
+		_, err = io.Copy(buf, logsStream)
+		if err != nil {
+			return errorMsg{err: fmt.Errorf("failed to read pod logs: %w", err)}
+		}
+
+		return podLogsLoadedMsg{content: buf.String()}
+	}
+}
+
+// Get pod container information for logs (still uses K8s client)
+func getPodContainers(clientManager *cluster.ClientManager, clusterID, namespace, podName string) tea.Cmd {
+	return func() tea.Msg {
+		client, exists := clientManager.GetClient(clusterID)
+		if !exists {
+			return errorMsg{err: fmt.Errorf("cluster %s not found", clusterID)}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		pod, err := client.Client.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		if err != nil {
+			return errorMsg{err: fmt.Errorf("failed to get pod: %w", err)}
+		}
+
+		// Return the pod directly - we'll handle container selection in the update function
+		return struct {
+			pod *corev1.Pod
+		}{pod: pod}
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -446,13 +542,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.namespaceTable.SetHeight(tableHeight)
 		m.podTable.SetHeight(tableHeight)
 		m.detailView.Height = tableHeight
+		m.logsView.Height = tableHeight
 		m.detailView.Width = m.width - 4
+		m.logsView.Width = m.width - 4
 
 		m.help.Width = m.width
 
-	case clientLoadedMsg:
+	case clientsLoadedMsg:
 		m.clientManager = msg.clientManager
-		return m, loadClusters(m.clientManager)
+		m.dbClient = msg.dbClient
+		return m, loadClusters(m.dbClient)
 
 	case clustersLoadedMsg:
 		m.clusterTable.SetRows(msg.rows)
@@ -473,6 +572,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailView.SetContent(msg.content)
 		m.statusMessage = "Loaded pod details"
 		m.loading = false
+
+	case podLogsLoadedMsg:
+		m.logsView.SetContent(msg.content)
+		m.statusMessage = "Loaded pod logs"
+		m.loading = false
+
+	case struct{ pod *corev1.Pod }:
+		pod := msg.pod
+		// Select first container or only container
+		if len(pod.Spec.Containers) == 1 {
+			m.selectedContainer = pod.Spec.Containers[0].Name
+		} else if len(pod.Spec.Containers) > 1 {
+			// For now, just pick the first container
+			m.selectedContainer = pod.Spec.Containers[0].Name
+		}
+
+		// Now load the logs with the selected container
+		return m, loadPodLogs(m.clientManager, m.selectedCluster, m.selectedNamespace, m.selectedPod, m.selectedContainer, m.logLines)
 
 	case errorMsg:
 		m.errorMessage = msg.err.Error()
@@ -499,19 +616,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ClusterView:
 				m.loading = true
 				m.statusMessage = "Refreshing clusters..."
-				return m, loadClusters(m.clientManager)
+				return m, loadClusters(m.dbClient)
 			case NamespaceView:
 				m.loading = true
 				m.statusMessage = "Refreshing namespaces..."
-				return m, loadNamespaces(m.clientManager, m.selectedCluster)
+				return m, loadNamespaces(m.dbClient, m.selectedCluster)
 			case PodView:
 				m.loading = true
 				m.statusMessage = "Refreshing pods..."
-				return m, loadPods(m.clientManager, m.selectedCluster, m.selectedNamespace)
+				return m, loadPods(m.dbClient, m.selectedCluster, m.selectedNamespace)
 			case DetailView:
 				m.loading = true
 				m.statusMessage = "Refreshing pod details..."
-				return m, loadPodDetails(m.clientManager, m.selectedCluster, m.selectedNamespace, m.selectedPod)
+				return m, loadPodDetails(m.dbClient, m.selectedCluster, m.selectedNamespace, m.selectedPod)
+			case LogsView:
+				m.loading = true
+				m.statusMessage = "Refreshing pod logs..."
+				return m, loadPodLogs(m.clientManager, m.selectedCluster, m.selectedNamespace, m.selectedPod, m.selectedContainer, m.logLines)
 			}
 		}
 
@@ -530,7 +651,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = "Loading namespaces..."
 				m.loading = true
 
-				return m, loadNamespaces(m.clientManager, m.selectedCluster)
+				return m, loadNamespaces(m.dbClient, m.selectedCluster)
 			}
 
 		case NamespaceView:
@@ -550,7 +671,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = "Loading pods..."
 				m.loading = true
 
-				return m, loadPods(m.clientManager, m.selectedCluster, m.selectedNamespace)
+				return m, loadPods(m.dbClient, m.selectedCluster, m.selectedNamespace)
 			}
 
 		case PodView:
@@ -570,10 +691,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = "Loading pod details..."
 				m.loading = true
 
-				return m, loadPodDetails(m.clientManager, m.selectedCluster, m.selectedNamespace, m.selectedPod)
+				return m, loadPodDetails(m.dbClient, m.selectedCluster, m.selectedNamespace, m.selectedPod)
+			case key.Matches(msg, m.keys.Logs):
+				if len(m.podTable.Rows()) == 0 {
+					return m, nil
+				}
+
+				selectedRow := m.podTable.SelectedRow()
+				m.selectedPod = selectedRow[0] // Pod name
+				m.currentView = LogsView
+				m.statusMessage = "Loading container info..."
+				m.loading = true
+
+				// First get pod container info, then we'll request logs for the selected container
+				return m, getPodContainers(m.clientManager, m.selectedCluster, m.selectedNamespace, m.selectedPod)
 			}
 
 		case DetailView:
+			if key.Matches(msg, m.keys.Back) {
+				m.currentView = PodView
+				return m, nil
+			}
+
+		case LogsView:
 			if key.Matches(msg, m.keys.Back) {
 				m.currentView = PodView
 				return m, nil
@@ -594,6 +734,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case DetailView:
 			m.detailView, cmd = m.detailView.Update(msg)
 			cmds = append(cmds, cmd)
+		case LogsView:
+			m.logsView, cmd = m.logsView.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 	}
 
@@ -612,7 +755,7 @@ func (m Model) View() string {
 	var content string
 
 	// Title bar based on current view
-	title := "Kubernetes Dashboard"
+	title := "K8s Starship"
 	switch m.currentView {
 	case ClusterView:
 		title += " - Clusters"
@@ -622,6 +765,8 @@ func (m Model) View() string {
 		title += fmt.Sprintf(" - Pods (Namespace: %s)", m.selectedNamespace)
 	case DetailView:
 		title += fmt.Sprintf(" - Pod Details: %s", m.selectedPod)
+	case LogsView:
+		title += fmt.Sprintf(" - Logs: %s (Container: %s)", m.selectedPod, m.selectedContainer)
 	}
 
 	// Show main content based on current view
@@ -634,6 +779,8 @@ func (m Model) View() string {
 		content = m.podTable.View()
 	case DetailView:
 		content = m.detailView.View()
+	case LogsView:
+		content = m.logsView.View()
 	}
 
 	// Status bar
@@ -675,6 +822,7 @@ func main() {
 	}()
 	log.SetOutput(f)
 
+	// Close database connection when exiting
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {
