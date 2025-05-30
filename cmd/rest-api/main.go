@@ -10,6 +10,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/jbetancur/dashboard/internal/pkg/assets/namespaces"
 	"github.com/jbetancur/dashboard/internal/pkg/assets/pods"
+	"github.com/jbetancur/dashboard/internal/pkg/auth"
 	"github.com/jbetancur/dashboard/internal/pkg/cluster"
 	"github.com/jbetancur/dashboard/internal/pkg/config"
 	"github.com/jbetancur/dashboard/internal/pkg/providers"
@@ -91,6 +92,8 @@ func main() {
 
 	clusterManager := cluster.NewManager(ctx, logger, clusterProvider)
 
+	// Create authorizer using your cluster manager
+	k8sAuthorizer := auth.NewK8sAuthorizer(clusterManager, logger)
 	config.SetupSubscriptions(ctx, messagingClient, store, clusterManager, logger)
 
 	// Initialize services
@@ -104,7 +107,7 @@ func main() {
 	podService := services.NewPodService(podProvider, store, logger)
 
 	app := fiber.New()
-	router.SetupRoutes(app, clusterService, namespaceService, podService)
+	router.SetupRoutes(app, clusterService, namespaceService, podService, k8sAuthorizer, logger)
 
 	logger.Info("Starting server on :8081")
 	if err := app.Listen(":8081"); err != nil {

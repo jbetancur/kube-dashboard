@@ -18,14 +18,14 @@ import (
 type PodService struct {
 	BaseService
 	provider *pods.MultiClusterPodProvider
-	store    store.Repository // Add MongoDB store
+	store    store.Repository
 }
 
 func NewPodService(provider *pods.MultiClusterPodProvider, store store.Repository, logger *slog.Logger) *PodService {
 	return &PodService{
 		BaseService: BaseService{Logger: logger},
 		provider:    provider,
-		store:       store, // Store the MongoDB repository
+		store:       store,
 	}
 }
 

@@ -14,14 +14,16 @@ import (
 type NamespaceService struct {
 	BaseService
 	provider *namespaces.MultiClusterNamespaceProvider
-	store    store.Repository // Add MongoDB store
+	store    store.Repository
 }
 
-func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, store store.Repository, logger *slog.Logger) *NamespaceService {
+// NewNamespaceService creates a new namespace service
+func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, store store.Repository,
+	logger *slog.Logger) *NamespaceService {
 	return &NamespaceService{
 		BaseService: BaseService{Logger: logger},
 		provider:    provider,
-		store:       store, // Store the MongoDB repository
+		store:       store,
 	}
 }
 
