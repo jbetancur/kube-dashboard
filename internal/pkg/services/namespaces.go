@@ -13,12 +13,12 @@ import (
 
 type NamespaceService struct {
 	BaseService
-	provider *namespaces.MultiClusterNamespaceProvider
+	provider *namespaces.NamespaceProvider
 	store    store.Repository
 }
 
 // NewNamespaceService creates a new namespace service
-func NewNamespaceService(provider *namespaces.MultiClusterNamespaceProvider, store store.Repository,
+func NewNamespaceService(provider *namespaces.NamespaceProvider, store store.Repository,
 	logger *slog.Logger) *NamespaceService {
 	return &NamespaceService{
 		BaseService: BaseService{Logger: logger},

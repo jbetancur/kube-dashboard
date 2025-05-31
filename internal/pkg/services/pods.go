@@ -17,11 +17,11 @@ import (
 
 type PodService struct {
 	BaseService
-	provider *pods.MultiClusterPodProvider
+	provider *pods.PodProvider
 	store    store.Repository
 }
 
-func NewPodService(provider *pods.MultiClusterPodProvider, store store.Repository, logger *slog.Logger) *PodService {
+func NewPodService(provider *pods.PodProvider, store store.Repository, logger *slog.Logger) *PodService {
 	return &PodService{
 		BaseService: BaseService{Logger: logger},
 		provider:    provider,

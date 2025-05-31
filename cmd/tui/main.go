@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -55,22 +56,24 @@ const (
 	NamespaceView
 	PodView
 	DetailView
+	ConfigMapView
 	LogsView // View for pod logs
 )
 
 // KeyMap defines the keybindings for the application
 type KeyMap struct {
-	Up        key.Binding
-	Down      key.Binding
-	Enter     key.Binding
-	Back      key.Binding
-	Quit      key.Binding
-	Refresh   key.Binding
-	Delete    key.Binding
-	Describe  key.Binding
-	Logs      key.Binding
-	Help      key.Binding
-	ClusterNS key.Binding
+	Up             key.Binding
+	Down           key.Binding
+	Enter          key.Binding
+	Back           key.Binding
+	Quit           key.Binding
+	Refresh        key.Binding
+	Delete         key.Binding
+	Describe       key.Binding
+	Logs           key.Binding
+	Help           key.Binding
+	ClusterNS      key.Binding
+	SwitchResource key.Binding
 }
 
 var keys = KeyMap{
@@ -118,11 +121,15 @@ var keys = KeyMap{
 		key.WithKeys("c"),
 		key.WithHelp("c", "change namespace"),
 	),
+	SwitchResource: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "switch resource"),
+	),
 }
 
-// ShortHelp returns keybindings to be shown in the mini help view.
+// Update ShortHelp and FullHelp to include the new binding
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Help, k.Up, k.Down, k.Enter, k.Back, k.Quit}
+	return []key.Binding{k.Help, k.Up, k.Down, k.Enter, k.Back, k.SwitchResource, k.Quit}
 }
 
 // FullHelp returns keybindings for the expanded help view.
@@ -131,7 +138,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Enter},
 		{k.Back, k.Refresh, k.Quit},
 		{k.Delete, k.Describe, k.Logs},
-		{k.ClusterNS, k.Help},
+		{k.SwitchResource, k.ClusterNS, k.Help},
 	}
 }
 
@@ -158,6 +165,9 @@ type Model struct {
 	showHelp          bool
 	loading           bool
 	logLines          int64
+	configMapTable    table.Model
+	selectedResource  string // "pods" or "configmaps"
+	selectedConfigMap string
 }
 
 // Message types
@@ -175,6 +185,10 @@ type namespacesLoadedMsg struct {
 }
 
 type podsLoadedMsg struct {
+	rows []table.Row
+}
+
+type configMapsLoadedMsg struct {
 	rows []table.Row
 }
 
@@ -232,6 +246,19 @@ func initialModel() Model {
 		Selected: selectedRowStyle,
 	})
 
+	configMapTable := table.New(
+		table.WithColumns([]table.Column{
+			{Title: "Name", Width: 30},
+			{Title: "Data Keys", Width: 30},
+			{Title: "Age", Width: 10},
+		}),
+		table.WithFocused(true),
+		table.WithHeight(10),
+	)
+	configMapTable.SetStyles(table.Styles{
+		Selected: selectedRowStyle,
+	})
+
 	detailView := viewport.New(80, 20)
 	detailView.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -245,6 +272,8 @@ func initialModel() Model {
 	return Model{
 		currentView:       ClusterView,
 		clusterTable:      clusterTable,
+		configMapTable:    configMapTable,
+		selectedResource:  "pods", // Default to pods view
 		namespaceTable:    namespaceTable,
 		podTable:          podTable,
 		detailView:        detailView,
@@ -390,6 +419,47 @@ func loadPods(dbClient store.Repository, clusterID, namespace string) tea.Cmd {
 	}
 }
 
+// Load ConfigMaps from database
+func loadConfigMaps(dbClient store.Repository, clusterID, namespace string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Get ConfigMaps from database
+		var configMaps []corev1.ConfigMap
+		err := dbClient.List(ctx, clusterID, namespace, "ConfigMap", &configMaps)
+		if err != nil {
+			return errorMsg{err: fmt.Errorf("failed to list configmaps from database: %w", err)}
+		}
+
+		rows := make([]table.Row, 0, len(configMaps))
+		for _, cm := range configMaps {
+			// Count number of keys in the ConfigMap data
+			keyCount := len(cm.Data)
+			keysList := ""
+			if keyCount > 0 {
+				keys := make([]string, 0, keyCount)
+				for k := range cm.Data {
+					keys = append(keys, k)
+				}
+				// Show first few keys with ellipsis if too many
+				if len(keys) > 3 {
+					keysList = fmt.Sprintf("%s, %s, %s... (%d total)", keys[0], keys[1], keys[2], len(keys))
+				} else {
+					keysList = strings.Join(keys, ", ")
+				}
+			} else {
+				keysList = "<empty>"
+			}
+
+			age := formatAge(cm.CreationTimestamp)
+			rows = append(rows, table.Row{cm.Name, keysList, age})
+		}
+
+		return configMapsLoadedMsg{rows: rows}
+	}
+}
+
 // Load pod details from database
 func loadPodDetails(dbClient store.Repository, clusterID, namespace, podName string) tea.Cmd {
 	return func() tea.Msg {
@@ -454,6 +524,71 @@ func loadPodDetails(dbClient store.Repository, clusterID, namespace, podName str
 				}
 			}
 			content += "\n"
+		}
+
+		return podDetailsLoadedMsg{content: content}
+	}
+}
+
+// Load ConfigMap details from database
+func loadConfigMapDetails(dbClient store.Repository, clusterID, namespace, configMapName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Get ConfigMap from database
+		var cm corev1.ConfigMap
+		err := dbClient.Get(ctx, clusterID, namespace, "ConfigMap", configMapName, &cm)
+		if err != nil {
+			return errorMsg{err: fmt.Errorf("failed to get ConfigMap from database: %w", err)}
+		}
+
+		// Format detailed info
+		content := fmt.Sprintf("ConfigMap: %s\n", cm.Name)
+		content += fmt.Sprintf("Namespace: %s\n", cm.Namespace)
+		content += fmt.Sprintf("Created: %s\n\n", cm.CreationTimestamp.Format(time.RFC3339))
+
+		content += "Labels:\n"
+		if len(cm.Labels) == 0 {
+			content += "  <none>\n"
+		} else {
+			for k, v := range cm.Labels {
+				content += fmt.Sprintf("  %s: %s\n", k, v)
+			}
+		}
+		content += "\n"
+
+		content += "Annotations:\n"
+		if len(cm.Annotations) == 0 {
+			content += "  <none>\n"
+		} else {
+			for k, v := range cm.Annotations {
+				content += fmt.Sprintf("  %s: %s\n", k, v)
+			}
+		}
+		content += "\n"
+
+		content += "Data:\n"
+		if len(cm.Data) == 0 && len(cm.BinaryData) == 0 {
+			content += "  <empty>\n"
+		} else {
+			content += fmt.Sprintf("  %d items\n\n", len(cm.Data)+len(cm.BinaryData))
+
+			// Regular data (string content)
+			for k, v := range cm.Data {
+				content += fmt.Sprintf("---[ %s ]---\n", k)
+				// Limit content size for display
+				if len(v) > 1000 {
+					content += v[:1000] + "... (truncated)\n\n"
+				} else {
+					content += v + "\n\n"
+				}
+			}
+
+			// Binary data (just show keys)
+			for k := range cm.BinaryData {
+				content += fmt.Sprintf("---[ %s ]--- (binary data)\n\n", k)
+			}
 		}
 
 		return podDetailsLoadedMsg{content: content}
@@ -538,6 +673,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clusterTable.SetHeight(tableHeight)
 		m.namespaceTable.SetHeight(tableHeight)
 		m.podTable.SetHeight(tableHeight)
+		m.configMapTable.SetHeight(tableHeight)
 		m.detailView.Height = tableHeight
 		m.logsView.Height = tableHeight
 		m.detailView.Width = m.width - 4
@@ -565,9 +701,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = fmt.Sprintf("Loaded %d pods", len(msg.rows))
 		m.loading = false
 
+	case configMapsLoadedMsg:
+		m.configMapTable.SetRows(msg.rows)
+		m.statusMessage = fmt.Sprintf("Loaded %d configmaps", len(msg.rows))
+		m.loading = false
+
 	case podDetailsLoadedMsg:
 		m.detailView.SetContent(msg.content)
-		m.statusMessage = "Loaded pod details"
+		m.statusMessage = "Loaded details"
 		m.loading = false
 
 	case podLogsLoadedMsg:
@@ -607,6 +748,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		if key.Matches(msg, m.keys.SwitchResource) {
+			// Only switch in namespace view
+			if m.currentView == NamespaceView {
+				// Toggle the selected resource type
+				if m.selectedResource == "pods" {
+					m.selectedResource = "configmaps"
+				} else {
+					m.selectedResource = "pods"
+				}
+				m.statusMessage = fmt.Sprintf("Switched to %s view", m.selectedResource)
+				return m, nil
+			}
+		}
+
 		if key.Matches(msg, m.keys.Refresh) {
 			// Refresh the current view
 			switch m.currentView {
@@ -622,10 +777,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.statusMessage = "Refreshing pods..."
 				return m, loadPods(m.dbClient, m.selectedCluster, m.selectedNamespace)
+			case ConfigMapView:
+				m.loading = true
+				m.statusMessage = "Refreshing ConfigMaps..."
+				return m, loadConfigMaps(m.dbClient, m.selectedCluster, m.selectedNamespace)
 			case DetailView:
 				m.loading = true
-				m.statusMessage = "Refreshing pod details..."
-				return m, loadPodDetails(m.dbClient, m.selectedCluster, m.selectedNamespace, m.selectedPod)
+				if m.selectedPod != "" {
+					m.statusMessage = "Refreshing pod details..."
+					return m, loadPodDetails(m.dbClient, m.selectedCluster, m.selectedNamespace, m.selectedPod)
+				} else if m.selectedConfigMap != "" {
+					m.statusMessage = "Refreshing ConfigMap details..."
+					return m, loadConfigMapDetails(m.dbClient, m.selectedCluster, m.selectedNamespace, m.selectedConfigMap)
+				}
 			case LogsView:
 				m.loading = true
 				m.statusMessage = "Refreshing pod logs..."
@@ -664,11 +828,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				selectedRow := m.namespaceTable.SelectedRow()
 				m.selectedNamespace = selectedRow[0] // Namespace name
-				m.currentView = PodView
-				m.statusMessage = "Loading pods..."
-				m.loading = true
 
-				return m, loadPods(m.dbClient, m.selectedCluster, m.selectedNamespace)
+				// Choose view based on selected resource type
+				if m.selectedResource == "pods" {
+					m.currentView = PodView
+					m.statusMessage = "Loading pods..."
+					m.loading = true
+					return m, loadPods(m.dbClient, m.selectedCluster, m.selectedNamespace)
+				} else {
+					m.currentView = ConfigMapView
+					m.statusMessage = "Loading ConfigMaps..."
+					m.loading = true
+					return m, loadConfigMaps(m.dbClient, m.selectedCluster, m.selectedNamespace)
+				}
 			}
 
 		case PodView:
@@ -704,9 +876,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, getPodContainers(m.clientManager, m.selectedCluster, m.selectedNamespace, m.selectedPod)
 			}
 
+		case ConfigMapView:
+			switch {
+			case key.Matches(msg, m.keys.Back):
+				m.currentView = NamespaceView
+				m.selectedConfigMap = ""
+				return m, nil
+			case key.Matches(msg, m.keys.Enter):
+				if len(m.configMapTable.Rows()) == 0 {
+					return m, nil
+				}
+
+				selectedRow := m.configMapTable.SelectedRow()
+				m.selectedConfigMap = selectedRow[0] // ConfigMap name
+				m.currentView = DetailView
+				m.statusMessage = "Loading ConfigMap details..."
+				m.loading = true
+
+				return m, loadConfigMapDetails(m.dbClient, m.selectedCluster, m.selectedNamespace, m.selectedConfigMap)
+			}
+
 		case DetailView:
 			if key.Matches(msg, m.keys.Back) {
-				m.currentView = PodView
+				if m.selectedPod != "" {
+					m.currentView = PodView
+					m.selectedPod = ""
+				} else if m.selectedConfigMap != "" {
+					m.currentView = ConfigMapView
+					m.selectedConfigMap = ""
+				}
 				return m, nil
 			}
 
@@ -727,6 +925,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		case PodView:
 			m.podTable, cmd = m.podTable.Update(msg)
+			cmds = append(cmds, cmd)
+		case ConfigMapView:
+			m.configMapTable, cmd = m.configMapTable.Update(msg)
 			cmds = append(cmds, cmd)
 		case DetailView:
 			m.detailView, cmd = m.detailView.Update(msg)
@@ -757,11 +958,19 @@ func (m Model) View() string {
 	case ClusterView:
 		title += " - Clusters"
 	case NamespaceView:
-		title += fmt.Sprintf(" - Namespaces (Cluster: %s)", m.selectedCluster)
+		resourceType := m.selectedResource
+		title += fmt.Sprintf(" - Namespaces (Cluster: %s) - Press TAB for %s",
+			m.selectedCluster, strings.ToUpper(resourceType[0:1])+resourceType[1:])
 	case PodView:
 		title += fmt.Sprintf(" - Pods (Namespace: %s)", m.selectedNamespace)
+	case ConfigMapView:
+		title += fmt.Sprintf(" - ConfigMaps (Namespace: %s)", m.selectedNamespace)
 	case DetailView:
-		title += fmt.Sprintf(" - Pod Details: %s", m.selectedPod)
+		if m.selectedPod != "" {
+			title += fmt.Sprintf(" - Pod Details: %s", m.selectedPod)
+		} else if m.selectedConfigMap != "" {
+			title += fmt.Sprintf(" - ConfigMap Details: %s", m.selectedConfigMap)
+		}
 	case LogsView:
 		title += fmt.Sprintf(" - Logs: %s (Container: %s)", m.selectedPod, m.selectedContainer)
 	}
@@ -774,6 +983,8 @@ func (m Model) View() string {
 		content = m.namespaceTable.View()
 	case PodView:
 		content = m.podTable.View()
+	case ConfigMapView:
+		content = m.configMapTable.View()
 	case DetailView:
 		content = m.detailView.View()
 	case LogsView:
@@ -792,6 +1003,9 @@ func (m Model) View() string {
 
 	// Help hint at the bottom
 	helpHint := "Press ? for help | q to quit | r to refresh"
+	if m.currentView == NamespaceView {
+		helpHint = "Press ? for help | TAB to switch resource | q to quit | r to refresh"
+	}
 
 	// Combine all parts
 	return lipgloss.JoinVertical(

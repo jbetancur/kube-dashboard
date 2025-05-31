@@ -8,6 +8,7 @@ import (
 	"plugin"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jbetancur/dashboard/internal/pkg/assets/configmaps"
 	"github.com/jbetancur/dashboard/internal/pkg/assets/namespaces"
 	"github.com/jbetancur/dashboard/internal/pkg/assets/pods"
 	"github.com/jbetancur/dashboard/internal/pkg/auth"
@@ -100,14 +101,25 @@ func main() {
 	clusterService := services.NewClusterService(clusterManager, store, logger)
 
 	// Create a multi-cluster namespace provider (no informers)
-	namespaceProvider := namespaces.NewMultiClusterNamespaceProvider(clusterManager)
+	namespaceProvider := namespaces.NewNamespaceProvider(clusterManager)
 	namespaceService := services.NewNamespaceService(namespaceProvider, store, logger)
 
-	podProvider := pods.NewMultiClusterPodProvider(clusterManager)
+	podProvider := pods.NewPodProvider(clusterManager)
 	podService := services.NewPodService(podProvider, store, logger)
 
+	configMapProvider := configmaps.NewConfigMapProvider(clusterManager)
+	configMapService := services.NewConfigMapService(configMapProvider, store, logger)
+
 	app := fiber.New()
-	router.SetupRoutes(app, clusterService, namespaceService, podService, k8sAuthorizer, logger)
+	router.SetupRoutes(
+		app,
+		clusterService,
+		namespaceService,
+		podService,
+		configMapService,
+		k8sAuthorizer,
+		logger,
+	)
 
 	logger.Info("Starting server on :8081")
 	if err := app.Listen(":8081"); err != nil {

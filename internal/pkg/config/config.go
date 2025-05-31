@@ -121,6 +121,11 @@ func SetupSubscriptions(
 		return handleNamespaceEvent(ctx, message, store, logger)
 	})
 
+	// Subscribe to config map events
+	messagingClient.Subscribe("config_map_added", func(message []byte) error {
+		return handleConfigMapEvent(ctx, message, store, logger)
+	})
+
 	// Log successful subscription setup
 	logger.Info("Event subscriptions configured")
 }
@@ -209,6 +214,30 @@ func handleNamespaceEvent(
 	}
 
 	logger.Info("Stored namespace from event",
+		"name", payload.Resource.Name,
+		"cluster", payload.ClusterID)
+	return nil
+}
+
+// handleConfigMapEvent processes config events
+func handleConfigMapEvent(
+	ctx context.Context,
+	message []byte,
+	store store.Repository,
+	logger *slog.Logger,
+) error {
+	var payload assets.ResourcePayload[corev1.ConfigMap]
+	if err := json.Unmarshal(message, &payload); err != nil {
+		logger.Error("Failed to unmarshal config map event", "error", err)
+		return err
+	}
+
+	if err := store.Save(ctx, payload.ClusterID, &payload.Resource); err != nil {
+		logger.Error("Failed to store config map", "error", err)
+		return err
+	}
+
+	logger.Info("Stored config map from event",
 		"name", payload.Resource.Name,
 		"cluster", payload.ClusterID)
 	return nil

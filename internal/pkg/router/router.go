@@ -9,7 +9,14 @@ import (
 	"github.com/jbetancur/dashboard/internal/pkg/services"
 )
 
-func SetupRoutes(app *fiber.App, clusterService *services.ClusterService, namespaceService *services.NamespaceService, podService *services.PodService, authorizer auth.Authorizer, logger *slog.Logger) {
+func SetupRoutes(
+	app *fiber.App,
+	clusterService *services.ClusterService,
+	namespaceService *services.NamespaceService,
+	podService *services.PodService,
+	configMapService *services.ConfigMapService,
+	authorizer auth.Authorizer,
+	logger *slog.Logger) {
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.SendString("OK")
 	})
@@ -67,4 +74,36 @@ func SetupRoutes(app *fiber.App, clusterService *services.ClusterService, namesp
 	api.Get("/clusters/:clusterID/namespaces/:namespaceID/pods/:podID/logs/:containerName",
 		auth.WebSocketAuthMiddleware(authorizer),
 		websocket.New(podService.StreamPodLogs))
+
+	api.Get("/clusters/:clusterID/namespaces/:namespaceID/configmaps",
+		auth.AuthMiddleware(),
+		auth.RequirePermission(authorizer, logger, auth.ResourceInfo{
+			Resource:       "configmaps",
+			Verb:           "list",
+			ClusterParam:   "clusterID",
+			NamespaceParam: "namespaceID",
+		}),
+
+		configMapService.ListConfigMaps)
+
+	api.Get("/clusters/:clusterID/namespaces/:namespaceID/configmaps/",
+		auth.AuthMiddleware(),
+		auth.RequirePermission(authorizer, logger, auth.ResourceInfo{
+			Resource:       "configmaps",
+			Verb:           "list",
+			ClusterParam:   "clusterID",
+			NamespaceParam: "namespaceID",
+		}),
+		configMapService.GetConfigMap)
+
+	api.Get("/clusters/:clusterID/namespaces/:namespaceID/configmaps/:configMapID",
+		auth.AuthMiddleware(),
+		auth.RequirePermission(authorizer, logger, auth.ResourceInfo{
+			Resource:       "configmaps",
+			Verb:           "get",
+			ClusterParam:   "clusterID",
+			NamespaceParam: "namespaceID",
+			NameParam:      "configMapID",
+		}),
+		configMapService.GetConfigMap)
 }
